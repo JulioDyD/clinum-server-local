@@ -1,0 +1,11 @@
+Package: clinum-web-local
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: __ARCH__
+Depends: adduser, systemd
+Maintainer: Clinum <support@clinum.local>
+Description: Clinum local bridge server
+ Bridge entre el gateway ESP-NOW/LoRa y el almacenamiento local, con UI
+ en tiempo real. Se ejecuta como servicio systemd con un runtime de Node
+ embebido y persistencia SQLite. Configuracion en /etc/clinum-web-local/.env.

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pantalla de sala · Clinum Local</title>
+  <script src="/vendor/vue.global.prod.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    .location-screen {
+      display: flex; flex-direction: column; height: 100vh; width: 100vw;
+      background-color: var(--bg-color, #0f172a); color: var(--text-color, #ffffff);
+      font-family: Arial, sans-serif; overflow: hidden;
+    }
+    .header-row {
+      display: flex; background-color: var(--bg-color, #0f172a); color: var(--header-color, #f59e0b);
+      font-size: 2.4rem; font-weight: 800; padding: 0.6rem 1.5rem; border-bottom: 3px solid var(--header-color, #f59e0b);
+    }
+    .header-col.llamando { flex: 1 1 auto; }
+    .header-col.llam { flex: 0 0 140px; text-align: center; }
+    .header-col.tiempo { flex: 0 0 220px; text-align: right; }
+
+    .calls-container { flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column; padding: 0.6rem 0; }
+    .call-row {
+      display: flex; align-items: center; padding: 0.9rem 1.2rem; margin: 0 1.2rem 0.4rem; border-radius: 6px;
+      font-size: 2.1rem; gap: 1rem; background: rgba(30,41,59,0.85);
+      border-left: 4px solid var(--normal-call-color, #0ea5e9);
+      transition: background-color 0.3s ease;
+    }
+    .call-row.emergency-call { background: rgba(239,68,68,0.18); border-left: 6px solid var(--emergency-call-color, #ef4444); }
+    .call-row.active-call { animation: pulseRow 2s ease-in-out infinite; }
+    .call-row.new-call { animation: highlightRow 1s ease-in-out infinite; border-left-color: #f59e0b !important; }
+    @keyframes pulseRow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
+    @keyframes highlightRow { 0%, 100% { background-color: rgba(245,158,11,0.3); } 50% { background-color: rgba(245,158,11,0.1); } }
+
+    .call-col.llamando { flex: 1 1 auto; display: flex; align-items: center; gap: 0.9rem; min-width: 0; }
+    .call-col.llam { flex: 0 0 140px; text-align: center; font-weight: 700; }
+    .call-col.tiempo { flex: 0 0 220px; text-align: right; font-family: 'Courier New', monospace; font-weight: 800; color: var(--timer-color, #22c55e); }
+    .call-col.tiempo.emergency-time { color: var(--emergency-call-color, #ef4444); }
+
+    .bed-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--normal-call-color, #0ea5e9); }
+    .call-row.emergency-call .bed-icon { color: var(--emergency-call-color, #ef4444); filter: drop-shadow(0 0 6px rgba(239,68,68,0.7)); }
+    .mirror-icon { transform: scaleX(-1); }
+    .call-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-row.emergency-call .call-text { color: var(--emergency-call-color, #ef4444); }
+    .call-row:not(.emergency-call) .call-text { color: var(--normal-call-color, #0ea5e9); }
+
+    .call-animation-enter-active { transition: all 0.8s ease-out; }
+    .call-animation-leave-active { transition: all 0.6s ease-in; position: absolute; }
+    .call-animation-enter-from { opacity: 0; transform: translateX(30px) scale(0.95); }
+    .call-animation-leave-to { opacity: 0; transform: translateX(-30px) scale(0.95); }
+    .call-animation-move { transition: transform 0.8s ease; }
+
+    .no-calls-message { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; }
+    .no-calls-message .big-icon { font-size: 5rem; }
+    .no-calls-message h2 { font-weight: 600; font-size: 1.6rem; margin: 0; }
+
+    .footer {
+      display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem;
+      border-top: 2px solid var(--header-color, #f59e0b); font-size: 1.15rem; color: #94a3b8;
+    }
+    .last-updated { font-family: 'Courier New', monospace; font-weight: 700; color: var(--text-color, #fff); }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="location-screen" :style="cssVariables">
+    <div class="header-row">
+      <div class="header-col llamando">LLAMANDO DESDE</div>
+      <div class="header-col llam">LLAM</div>
+      <div class="header-col tiempo">TIEMPO</div>
+    </div>
+
+    <div class="calls-container">
+      <template v-if="visibleCalls.length > 0">
+        <transition-group name="call-animation">
+          <div
+            v-for="call in visibleCalls"
+            :key="call.deviceId"
+            class="call-row active-call"
+            :class="{ 'emergency-call': call.isEmergency, 'new-call': newCallIds.includes(call.deviceId) }"
+          >
+            <div class="call-col llamando">
+              <span class="bed-icon" :class="{ 'mirror-icon': call.mirror }">
+                <svg v-if="call.locationType === 'sillon'" viewBox="0 0 24 24" width="32" height="32"><rect x="5" y="4" width="14" height="10" rx="2" fill="currentColor"/><rect x="3" y="12" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="17" y="12" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="6" y="15" width="12" height="4" rx="1" fill="currentColor"/></svg>
+                <svg v-else-if="call.locationType === 'bano'" viewBox="0 0 24 24" width="32" height="32"><rect x="6" y="3" width="12" height="6" rx="2" fill="currentColor"/><path d="M5 10 h14 a2 2 0 0 1 2 2 v2 a7 7 0 0 1 -7 7 h-4 a7 7 0 0 1 -7 -7 v-2 a2 2 0 0 1 2 -2 z" fill="currentColor"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="32" height="32"><rect x="2" y="11" width="20" height="7" rx="1.5" fill="currentColor"/><rect x="2" y="7" width="6" height="5" rx="1.5" fill="currentColor"/><rect x="1" y="18" width="2" height="3" fill="currentColor"/><rect x="21" y="18" width="2" height="3" fill="currentColor"/></svg>
+              </span>
+              <span class="call-text">{{ call.name }}</span>
+            </div>
+            <div class="call-col llam">{{ call.cons || 1 }}</div>
+            <div class="call-col tiempo" :class="{ 'emergency-time': call.isEmergency }">{{ formatCallTime(call) }}</div>
+          </div>
+        </transition-group>
+      </template>
+      <div v-else class="no-calls-message">
+        <div class="big-icon">✅</div>
+        <h2>No hay llamados activos</h2>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>
+        {{ settings.name || 'Sede sin nombre' }}
+        <span v-if="allCalls.length > MAX_VISIBLE_CALLS"> — Mostrando {{ visibleCalls.length }} de {{ allCalls.length }}</span>
+      </div>
+      <div class="last-updated">{{ formattedCurrentTime }}</div>
+    </div>
+
+    <audio ref="alertSound" preload="auto"></audio>
+    <audio ref="alertSoundBackup1" preload="auto"></audio>
+    <audio ref="alertSoundBackup2" preload="auto"></audio>
+    <audio ref="emergencySound" preload="auto"></audio>
+    <audio ref="emergencySoundBackup1" preload="auto"></audio>
+    <audio ref="emergencySoundBackup2" preload="auto"></audio>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
+
+createApp({
+  setup() {
+    const MAX_VISIBLE_CALLS = 7;
+    const ROTATION_INTERVAL_MS = 10000;
+
+    const calls = ref([]); // ActiveCallState[] tal cual llega del servidor
+    const devices = ref([]);
+    const settings = ref({
+      name: '', backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      normalCallColor: '#0ea5e9', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
+      soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
+      voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
+    });
+
+    const currentTime = ref(new Date());
+    const callTimers = reactive({});
+    const newCallIds = ref([]);
+    const rotationIndex = ref(0);
+
+    const alertSound = ref(null);
+    const alertSoundBackup1 = ref(null);
+    const alertSoundBackup2 = ref(null);
+    const emergencySound = ref(null);
+    const emergencySoundBackup1 = ref(null);
+    const emergencySoundBackup2 = ref(null);
+    const nextAudioIndex = ref(0);
+
+    const isSpeaking = ref(false);
+    const speechQueue = ref([]);
+
+    // Recuerda cons por deviceId para detectar insistencias entre snapshots
+    const knownCons = new Map();
+    let hasLoadedInitialSnapshot = false;
+
+    const cssVariables = computed(() => ({
+      '--bg-color': settings.value.backgroundColor,
+      '--header-color': settings.value.headerColor,
+      '--text-color': settings.value.textColor,
+      '--normal-call-color': settings.value.normalCallColor,
+      '--emergency-call-color': settings.value.emergencyCallColor,
+      '--timer-color': settings.value.timerColor,
+    }));
+
+    const getDeviceName = (deviceId) => {
+      const d = devices.value.find(x => x.deviceId === deviceId);
+      return d?.name || `Llamador ${deviceId.slice(-6)}`;
+    };
+
+    const getDeviceLocationType = (deviceId) => {
+      const d = devices.value.find(x => x.deviceId === deviceId);
+      return d?.callerLocationType || 'cama';
+    };
+
+    const allCalls = computed(() => {
+      return [...calls.value]
+        .filter(c => c.active)
+        .map(c => {
+          const locationType = getDeviceLocationType(c.deviceId);
+          return {
+            ...c,
+            isEmergency: c.call_type === 'emergency',
+            name: getDeviceName(c.deviceId),
+            locationType,
+            mirror: locationType === 'bano',
+          };
+        })
+        .sort((a, b) => {
+          if (a.isEmergency && !b.isEmergency) return -1;
+          if (!a.isEmergency && b.isEmergency) return 1;
+          return a.startedAtMs - b.startedAtMs;
+        });
+    });
+
+    const visibleCalls = computed(() => {
+      const total = allCalls.value.length;
+      if (total <= MAX_VISIBLE_CALLS) return allCalls.value;
+      const start = rotationIndex.value % total;
+      const end = start + MAX_VISIBLE_CALLS;
+      if (end <= total) return allCalls.value.slice(start, end);
+      return [...allCalls.value.slice(start), ...allCalls.value.slice(0, end - total)];
+    });
+
+    const formattedCurrentTime = computed(() => new Intl.DateTimeFormat('es-CO', {
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'America/Bogota',
+    }).format(currentTime.value));
+
+    const formatCallTime = (call) => {
+      if (callTimers[call.deviceId]) return callTimers[call.deviceId];
+      const diffMs = Date.now() - call.startedAtMs;
+      return msToClock(diffMs);
+    };
+
+    const msToClock = (diffMs) => {
+      const h = Math.floor(diffMs / 3600000);
+      const m = Math.floor((diffMs % 3600000) / 60000);
+      const s = Math.floor((diffMs % 60000) / 1000);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    };
+
+    // ── Audio ──
+    const applyAudioSources = () => {
+      const normalSrc = `/sounds/${settings.value.alertSound}`;
+      const emergencySrc = `/sounds/${settings.value.emergencySound}`;
+      const vol = settings.value.soundVolume / 100;
+      [alertSound, alertSoundBackup1, alertSoundBackup2].forEach(a => {
+        if (a.value) { a.value.src = normalSrc; a.value.volume = vol; }
+      });
+      [emergencySound, emergencySoundBackup1, emergencySoundBackup2].forEach(a => {
+        if (a.value) { a.value.src = emergencySrc; a.value.volume = vol; }
+      });
+    };
+
+    const getNextAudioElement = (isEmergency) => {
+      const refs = isEmergency
+        ? [emergencySound, emergencySoundBackup1, emergencySoundBackup2]
+        : [alertSound, alertSoundBackup1, alertSoundBackup2];
+      const el = refs[nextAudioIndex.value % 3].value;
+      nextAudioIndex.value = (nextAudioIndex.value + 1) % 3;
+      return el;
+    };
+
+    const playAlertSound = (isEmergency) => {
+      if (!settings.value.soundEnabled) return;
+      try {
+        const el = getNextAudioElement(isEmergency);
+        if (!el) return;
+        el.muted = false;
+        el.volume = settings.value.soundVolume / 100;
+        el.currentTime = 0;
+        el.play().catch(() => {
+          const soundFile = isEmergency ? settings.value.emergencySound : settings.value.alertSound;
+          new Audio(`/sounds/${soundFile}`).play().catch(() => {});
+        });
+      } catch (e) { /* ignorado */ }
+    };
+
+    const processSpeechQueue = () => {
+      if (isSpeaking.value || speechQueue.value.length === 0) return;
+      const { callerName, isEmergency } = speechQueue.value.shift();
+      try {
+        const message = isEmergency ? `Llamado de emergencia desde ${callerName}` : `Llamado desde ${callerName}`;
+        const utterance = new SpeechSynthesisUtterance(message);
+        utterance.lang = 'es-MX';
+        utterance.rate = settings.value.voiceRate || 1.0;
+        utterance.pitch = settings.value.voicePitch || 1.0;
+        utterance.volume = (settings.value.soundVolume / 100) * (settings.value.voiceVolume || 0.9);
+
+        const voices = window.speechSynthesis.getVoices();
+        const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
+        let selectedVoice = voices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
+          || voices.find(v => v.lang.startsWith('es'));
+        if (selectedVoice) utterance.voice = selectedVoice;
+
+        isSpeaking.value = true;
+        utterance.onend = () => { isSpeaking.value = false; setTimeout(processSpeechQueue, 500); };
+        utterance.onerror = () => { isSpeaking.value = false; setTimeout(processSpeechQueue, 500); };
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        isSpeaking.value = false;
+        setTimeout(processSpeechQueue, 500);
+      }
+    };
+
+    const speakCallAnnouncement = (callerName, isEmergency) => {
+      if (!('speechSynthesis' in window) || !settings.value.voiceEnabled) return;
+      speechQueue.value.push({ callerName, isEmergency });
+      processSpeechQueue();
+    };
+
+    const triggerAlert = (deviceId, isEmergency) => {
+      newCallIds.value = [...newCallIds.value, deviceId];
+      setTimeout(() => { newCallIds.value = newCallIds.value.filter(id => id !== deviceId); }, 5000);
+      if (settings.value.voiceEnabled) {
+        speakCallAnnouncement(getDeviceName(deviceId), isEmergency);
+      } else {
+        playAlertSound(isEmergency);
+      }
+    };
+
+    // ── Datos en vivo ──
+    const applySnapshot = (nextCalls) => {
+      if (hasLoadedInitialSnapshot) {
+        for (const call of nextCalls) {
+          if (!call.active) continue;
+          const prevCons = knownCons.get(call.deviceId);
+          if (prevCons === undefined) {
+            triggerAlert(call.deviceId, call.call_type === 'emergency');
+          } else if (call.cons > prevCons) {
+            triggerAlert(call.deviceId, call.call_type === 'emergency');
+          }
+        }
+      }
+      knownCons.clear();
+      for (const call of nextCalls) if (call.active) knownCons.set(call.deviceId, call.cons);
+      calls.value = nextCalls;
+      hasLoadedInitialSnapshot = true;
+    };
+
+    const applyCallState = (state) => {
+      if (state.active) {
+        const prevCons = knownCons.get(state.deviceId);
+        const idx = calls.value.findIndex(c => c.deviceId === state.deviceId);
+        if (idx >= 0) calls.value[idx] = state; else calls.value.push(state);
+        if (hasLoadedInitialSnapshot && (prevCons === undefined || state.cons > prevCons)) {
+          triggerAlert(state.deviceId, state.call_type === 'emergency');
+        }
+        knownCons.set(state.deviceId, state.cons);
+      } else {
+        const idx = calls.value.findIndex(c => c.deviceId === state.deviceId);
+        if (idx >= 0) calls.value.splice(idx, 1);
+        knownCons.delete(state.deviceId);
+      }
+    };
+
+    let socket;
+    let clockTimer, timerTimer, rotationTimer;
+
+    onMounted(async () => {
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+
+      try {
+        const [callsRes, devicesRes, settingsRes] = await Promise.all([
+          fetch('/calls/active').then(r => r.json()),
+          fetch('/devices').then(r => r.json()),
+          fetch('/location-settings').then(r => r.json()),
+        ]);
+        devices.value = devicesRes.items || [];
+        settings.value = settingsRes;
+        applyAudioSources();
+        applySnapshot(callsRes.items || []);
+      } catch (e) { /* se recupera con los eventos del socket */ }
+
+      socket = io();
+      socket.on('active_calls', (list) => applySnapshot(list));
+      socket.on('call_state', (state) => applyCallState(state));
+      socket.on('device_list', (list) => { devices.value = list; });
+      socket.on('device_registered', (device) => {
+        const idx = devices.value.findIndex(d => d.deviceId === device.deviceId);
+        if (idx >= 0) devices.value[idx] = device; else devices.value.push(device);
+      });
+      socket.on('location_settings', (next) => { settings.value = next; applyAudioSources(); });
+
+      clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);
+      timerTimer = setInterval(() => {
+        for (const call of calls.value) {
+          if (!call.active) continue;
+          callTimers[call.deviceId] = msToClock(Date.now() - call.startedAtMs);
+        }
+      }, 1000);
+      rotationTimer = setInterval(() => {
+        if (allCalls.value.length > MAX_VISIBLE_CALLS) {
+          rotationIndex.value = (rotationIndex.value + 1) % allCalls.value.length;
+        }
+      }, ROTATION_INTERVAL_MS);
+    });
+
+    onUnmounted(() => {
+      if (socket) socket.disconnect();
+      clearInterval(clockTimer);
+      clearInterval(timerTimer);
+      clearInterval(rotationTimer);
+    });
+
+    return {
+      MAX_VISIBLE_CALLS, allCalls, visibleCalls, settings, cssVariables, newCallIds,
+      formattedCurrentTime, formatCallTime,
+      alertSound, alertSoundBackup1, alertSoundBackup2,
+      emergencySound, emergencySoundBackup1, emergencySoundBackup2,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

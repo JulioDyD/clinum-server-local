@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clinum · Local</title>
+  <script src="/vendor/vue.global.prod.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+    /* ── Navbar ── */
+    .navbar {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      background: #1e293b; border-bottom: 1px solid #334155;
+      position: sticky; top: 0; z-index: 20;
+    }
+    .nav-brand {
+      font-size: 1.05rem; font-weight: 700; color: #f8fafc;
+      margin-right: auto; display: flex; align-items: center; gap: 0.5rem;
+    }
+    .pulse-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #22c55e; flex-shrink: 0;
+      box-shadow: 0 0 0 0 rgba(34,197,94,0.4);
+      animation: pulse-green 2s infinite;
+    }
+    .pulse-dot.offline { background: #ef4444; animation: none; box-shadow: none; }
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+      100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+    }
+    .nav-btn {
+      padding: 0.4rem 1rem; border-radius: 6px; border: none; cursor: pointer;
+      font-size: 0.85rem; font-weight: 600; transition: all 0.15s;
+      background: transparent; color: #64748b;
+    }
+    .nav-btn.active { background: #3b82f6; color: #fff; }
+    .nav-btn:hover:not(.active) { background: #334155; color: #e2e8f0; }
+
+    /* ── Layout ── */
+    .main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+
+    /* ── Stats bar ── */
+    .stats-bar { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .stat-card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+      padding: 0.875rem 1.25rem; min-width: 110px;
+    }
+    .stat-card .val { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+    .stat-card .lbl { font-size: 0.7rem; color: #64748b; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-emergency .val { color: #ef4444; }
+    .stat-normal .val    { color: #3b82f6; }
+    .stat-online .val    { color: #22c55e; }
+
+    /* ── Call cards grid ── */
+    .calls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem; margin-bottom: 2rem;
+    }
+    .call-card {
+      background: #1e293b; border-radius: 12px; padding: 1.25rem;
+      border: 2px solid #334155; position: relative; overflow: hidden;
+      transition: transform 0.15s;
+    }
+    .call-card:hover { transform: translateY(-2px); }
+    .call-card.emergency {
+      border-color: #ef4444; background: #1c0a0a;
+      animation: pulse-card 1.8s infinite;
+    }
+    .call-card.normal { border-color: #3b82f6; background: #080e1a; }
+    @keyframes pulse-card {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.25); }
+      50%       { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+    }
+    .call-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 0.18rem 0.6rem; border-radius: 20px;
+      font-size: 0.68rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.75rem;
+    }
+    .call-badge.emergency { background: #ef4444; color: #fff; }
+    .call-badge.normal    { background: #3b82f6; color: #fff; }
+    .call-name {
+      font-size: 1.25rem; font-weight: 700; color: #f1f5f9;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+    .call-id { font-size: 0.68rem; color: #475569; font-family: monospace; margin-bottom: 0.75rem; }
+    .call-timer {
+      font-size: 1.6rem; font-weight: 300;
+      font-family: 'Courier New', monospace; color: #f8fafc; letter-spacing: 0.04em;
+    }
+    .call-cons {
+      position: absolute; top: 1rem; right: 1rem;
+      background: rgba(255,255,255,0.08); border-radius: 50%;
+      width: 30px; height: 30px; display: flex; align-items: center;
+      justify-content: center; font-size: 0.8rem; font-weight: 700; color: #94a3b8;
+    }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 4rem 2rem; color: #334155; }
+    .empty-state .icon { font-size: 3.5rem; margin-bottom: 0.75rem; }
+    .empty-state p { font-size: 0.95rem; color: #475569; }
+
+    /* ── Section header ── */
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+    .section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; }
+    .chip {
+      display: inline-block; padding: 0.1rem 0.55rem; border-radius: 20px;
+      font-size: 0.7rem; font-weight: 700; background: #1e3a5f; color: #93c5fd;
+    }
+
+    /* ── Table ── */
+    .table-wrap { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; margin-bottom: 2rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: #0f172a; padding: 0.7rem 1rem; text-align: left;
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: #475569; border-bottom: 1px solid #334155;
+    }
+    td { padding: 0.85rem 1rem; font-size: 0.875rem; border-bottom: 1px solid #161e2e; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.015); }
+
+    /* ── Status dot ── */
+    .status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; }
+    .status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .status.online  { color: #22c55e; } .status.online::before  { background: #22c55e; }
+    .status.offline { color: #475569; } .status.offline::before { background: #475569; }
+
+    /* ── Inline edit ── */
+    .edit-row { display: flex; align-items: center; gap: 6px; }
+    .edit-input {
+      background: #0f172a; border: 1px solid #3b82f6; border-radius: 6px;
+      padding: 0.28rem 0.55rem; color: #f1f5f9; font-size: 0.875rem; width: 160px;
+    }
+    .edit-input:focus { outline: none; border-color: #60a5fa; }
+    .btn-xs {
+      padding: 0.22rem 0.55rem; border-radius: 5px; border: none;
+      cursor: pointer; font-size: 0.72rem; font-weight: 700;
+    }
+    .btn-save   { background: #3b82f6; color: #fff; }
+    .btn-cancel { background: #334155; color: #94a3b8; }
+    .btn-edit   { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+    .btn-delete { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+    .btn-save:hover   { background: #2563eb; }
+    .btn-cancel:hover { background: #475569; }
+    .btn-edit:hover   { background: #334155; color: #94a3b8; }
+    .btn-delete:hover { background: #7f1d1d; color: #fca5a5; border-color: #ef4444; }
+
+    /* ── History badges ── */
+    .hbadge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.68rem; font-weight: 700; }
+    .hbadge.emergency { background: #7f1d1d; color: #fca5a5; }
+    .hbadge.normal    { background: #1e3a5f; color: #93c5fd; }
+
+    .mono { font-family: 'Courier New', monospace; font-size: 0.78rem; color: #475569; }
+    .sub  { font-size: 0.7rem; color: #475569; margin-top: 1px; }
+
+    /* ── End call button ── */
+    .btn-end {
+      margin-top: 0.85rem; width: 100%;
+      padding: 0.45rem 0.75rem; border-radius: 7px; border: 1px solid #334155;
+      cursor: pointer; font-size: 0.78rem; font-weight: 700;
+      background: rgba(255,255,255,0.05); color: #64748b;
+      transition: all 0.15s;
+    }
+    .call-card.normal  .btn-end:hover { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: #ef4444; }
+    .call-card.emergency .btn-end:hover { background: rgba(239,68,68,0.25); color: #fca5a5; border-color: #ef4444; }
+    .btn-end:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Sound lamps ── */
+    .lamp-layout { display: block; }
+    .lamp-list { display: grid; gap: 0.75rem; }
+    .lamp-row {
+      display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 1rem; align-items: center;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1rem;
+    }
+    .lamp-title { display: flex; align-items: center; gap: 0.65rem; color: #f8fafc; font-weight: 700; }
+    .lamp-state { width: 12px; height: 12px; border-radius: 50%; background: #475569; flex-shrink: 0; }
+    .lamp-state.normal { background: #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,.55); }
+    .lamp-state.emergency { background: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,.7); }
+    .lamp-controls { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
+    .field { display: grid; gap: 0.3rem; }
+    .field label { font-size: 0.66rem; color: #64748b; text-transform: uppercase; font-weight: 700; }
+    .field input[type="text"], .field select {
+      background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 0.42rem 0.55rem;
+    }
+    .field input[type="range"] { width: 110px; accent-color: #0ea5e9; }
+    .toggle { display: inline-flex; align-items: center; gap: 0.45rem; color: #cbd5e1; font-size: 0.78rem; }
+    .toggle input { accent-color: #0ea5e9; width: 16px; height: 16px; }
+    .btn-action { border: 1px solid #334155; border-radius: 6px; background: #0f172a; color: #cbd5e1; padding: 0.42rem 0.75rem; font-size: 1.15rem; line-height: 1; cursor: pointer; }
+    .btn-action:hover { border-color: #0ea5e9; color: #fff; }
+    .btn-assign { background: #1e293b; color: #93c5fd; border: 1px solid #334155; }
+    .btn-assign:hover { border-color: #0ea5e9; color: #fff; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(2,6,23,0.72); z-index: 50;
+      display: flex; align-items: center; justify-content: center; padding: 1rem;
+    }
+    .modal-card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.25rem;
+      width: 100%; max-width: 420px; max-height: 85vh; overflow: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+    .assign-title { font-size: 0.95rem; color: #f8fafc; margin-bottom: 0.3rem; }
+    .assign-copy { font-size: 0.74rem; color: #64748b; line-height: 1.45; margin-bottom: 1rem; }
+    .assignment-list { display: grid; gap: 0.45rem; margin: 0.8rem 0 1rem; max-height: 320px; overflow: auto; }
+    .assignment-item { display: flex; align-items: center; gap: 0.55rem; padding: 0.55rem; background: #0f172a; border-radius: 6px; font-size: 0.8rem; }
+    .assignment-item input { accent-color: #0ea5e9; }
+    .full { width: 100%; }
+    .btn-open-screen { border: 1px solid #334155; border-radius: 6px; background: #0f172a; color: #93c5fd; padding: 0.42rem 0.75rem; font-size: 0.78rem; text-decoration: none; }
+    .btn-open-screen:hover { border-color: #0ea5e9; color: #fff; }
+    .loc-select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+    .settings-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.1rem; display: grid; gap: 1.25rem; }
+    .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; align-items: end; }
+    .settings-grid input[type="color"] { width: 100%; height: 36px; padding: 2px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; }
+    .settings-grid input[type="range"] { width: 100%; }
+    .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; margin-bottom: 1.25rem; }
+    .profile-row { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.8rem; display: grid; gap: 0.65rem; }
+    .profile-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .profile-name { font-size: 0.82rem; color: #f8fafc; font-weight: 700; }
+    .profile-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
+    .profile-fields select { width: 100%; }
+    .swatch { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.35); border-radius: 50%; }
+
+    @media (max-width: 600px) {
+      .main { padding: 1rem 0.75rem; }
+      .navbar { padding: 0.75rem; flex-wrap: wrap; }
+      .nav-brand { flex-basis: 100%; margin-bottom: 0.25rem; }
+      .nav-btn { flex: 1 1 0; min-width: 0; padding: 0.4rem 0.3rem; }
+      .stats-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+      .stat-card { min-width: 0; padding: 0.75rem 0.6rem; }
+      .stat-card .val { font-size: 1.45rem; }
+      .stat-card .lbl { font-size: 0.62rem; }
+      .calls-grid { grid-template-columns: 1fr; }
+      .lamp-row { grid-template-columns: 1fr; }
+      .lamp-controls { justify-content: flex-start; }
+      .modal-card { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span>🏥 Clinum Local</span>
+      <span class="pulse-dot" :class="{ offline: !connected }"></span>
+    </div>
+    <button class="nav-btn" :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'">Monitor</button>
+    <button class="nav-btn" :class="{ active: tab === 'devices' }" @click="tab = 'devices'">Llamadores</button>
+    <button class="nav-btn" :class="{ active: tab === 'lamps' }" @click="tab = 'lamps'">Lámparas</button>
+    <button class="nav-btn" :class="{ active: tab === 'settings' }" @click="tab = 'settings'">Configuración</button>
+  </nav>
+
+  <main class="main">
+
+    <!-- ══════════════════════════════════════
+         MONITOR VIEW
+    ══════════════════════════════════════ -->
+    <div v-show="tab === 'monitor'">
+
+      <!-- Stats bar -->
+      <div class="stats-bar">
+        <div class="stat-card" :class="activeCalls.length > 0 ? (emergencyCount > 0 ? 'stat-emergency' : 'stat-normal') : ''">
+          <div class="val">{{ activeCalls.length }}</div>
+          <div class="lbl">Llamados activos</div>
+        </div>
+        <div class="stat-card" :class="emergencyCount > 0 ? 'stat-emergency' : ''">
+          <div class="val">{{ emergencyCount }}</div>
+          <div class="lbl">Emergencias</div>
+        </div>
+        <div class="stat-card stat-online">
+          <div class="val">{{ onlineCount }}</div>
+          <div class="lbl">Online</div>
+        </div>
+        <div class="stat-card">
+          <div class="val">{{ devices.length }}</div>
+          <div class="lbl">Registrados</div>
+        </div>
+      </div>
+
+      <!-- Call cards -->
+      <div v-if="activeCalls.length > 0" class="calls-grid">
+        <div
+          v-for="call in activeCalls"
+          :key="call.deviceId"
+          class="call-card"
+          :class="call.call_type"
+        >
+          <div class="call-cons">{{ call.cons }}</div>
+          <div class="call-badge" :class="call.call_type">
+            {{ call.call_type === 'emergency' ? '🚨 Emergencia' : '📞 Llamada' }}
+          </div>
+          <div class="call-name">{{ getDeviceName(call.deviceId) }}</div>
+          <div class="call-id">{{ call.deviceId }}</div>
+          <div class="call-timer">{{ formatDuration(call.startedAtMs) }}</div>
+          <button
+            class="btn-end"
+            :disabled="endingId === call.deviceId"
+            @click="endCall(call.deviceId)"
+          >{{ endingId === call.deviceId ? 'Finalizando…' : '✓ Finalizar llamado' }}</button>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div v-else class="empty-state">
+        <div class="icon">🔔</div>
+        <p>Sin llamados activos en este momento</p>
+      </div>
+
+      <!-- Historial -->
+      <div v-if="callHistory.length > 0">
+        <div class="section-header">
+          <span class="section-title">Historial de llamados</span>
+          <span class="chip">últimos {{ callHistory.length }}</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Dispositivo</th>
+                <th>Tipo</th>
+                <th>Cons.</th>
+                <th>Duración</th>
+                <th>Llegada</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="h in callHistory.slice(0, 10)" :key="h.id">
+                <td>
+                  <div>{{ getDeviceName(h.deviceId) }}</div>
+                  <div class="sub mono">{{ h.deviceId }}</div>
+                </td>
+                <td><span class="hbadge" :class="h.call_type">{{ h.call_type === 'emergency' ? 'Emergencia' : 'Normal' }}</span></td>
+                <td class="mono">{{ h.cons }}</td>
+                <td class="mono">{{ formatMs(h.durationMs) }}</td>
+                <td class="mono">{{ formatDateTime(h.startedAtMs) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         DEVICES VIEW
+    ══════════════════════════════════════ -->
+    <div v-show="tab === 'devices'">
+
+      <!-- Stats bar -->
+      <div class="stats-bar">
+        <div class="stat-card stat-online">
+          <div class="val">{{ onlineCount }}</div>
+          <div class="lbl">Online</div>
+        </div>
+        <div class="stat-card">
+          <div class="val">{{ devices.length - onlineCount }}</div>
+          <div class="lbl">Offline</div>
+        </div>
+        <div class="stat-card">
+          <div class="val">{{ devices.length }}</div>
+          <div class="lbl">Total</div>
+        </div>
+      </div>
+
+      <!-- Devices table -->
+      <div v-if="devices.length > 0" class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>ID dispositivo</th>
+              <th>MAC</th>
+              <th>Nombre</th>
+              <th>Ubicación</th>
+              <th>Estado</th>
+              <th>Última vez</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(d, i) in devices" :key="d.deviceId">
+              <td class="mono">{{ i + 1 }}</td>
+              <td class="mono">{{ d.deviceId }}</td>
+              <td class="mono">{{ d.mac || '—' }}</td>
+              <td>
+                <div v-if="editingId === d.deviceId" class="edit-row">
+                  <input
+                    class="edit-input"
+                    v-model="editName"
+                    @keyup.enter="saveEdit(d.deviceId)"
+                    @keyup.escape="cancelEdit"
+                    autofocus
+                  />
+                  <button class="btn-xs btn-save" @click="saveEdit(d.deviceId)">✓</button>
+                  <button class="btn-xs btn-cancel" @click="cancelEdit">✕</button>
+                </div>
+                <span v-else style="color:#f1f5f9; font-weight:500;">
+                  {{ d.name || d.deviceId.slice(-6) }}
+                </span>
+              </td>
+              <td>
+                <select class="loc-select" v-model="d.callerLocationType" @change="saveLocationType(d)">
+                  <option value="cama">🛏️ Cama</option>
+                  <option value="sillon">🛋️ Sillón</option>
+                  <option value="bano">🚻 Baño</option>
+                </select>
+              </td>
+              <td>
+                <span class="status" :class="isOnline(d) ? 'online' : 'offline'">
+                  {{ isOnline(d) ? 'Online' : 'Offline' }}
+                </span>
+              </td>
+              <td class="mono">{{ d.lastSeenMs ? formatLastSeen(d.lastSeenMs) : '—' }}</td>
+              <td style="display:flex; gap:4px; align-items:center;">
+                <button
+                  v-if="editingId !== d.deviceId"
+                  class="btn-xs btn-edit"
+                  @click="startEdit(d)"
+                >✏️ Editar</button>
+                <button
+                  v-if="editingId !== d.deviceId"
+                  class="btn-xs btn-assign"
+                  @click="openAssignModal(d)"
+                >🔗 Lámparas</button>
+                <button
+                  v-if="editingId !== d.deviceId"
+                  class="btn-xs btn-delete"
+                  @click="deleteDevice(d)"
+                >🗑 Eliminar</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Empty devices -->
+      <div v-else class="empty-state">
+        <div class="icon">📡</div>
+        <p>Sin dispositivos registrados aún.<br>Enciende un llamador para que aparezca aquí.</p>
+      </div>
+    </div>
+
+    <div v-show="tab === 'lamps'">
+      <div class="stats-bar">
+        <div class="stat-card stat-online"><div class="val">{{ onlineLampCount }}</div><div class="lbl">En línea</div></div>
+        <div class="stat-card"><div class="val">{{ lamps.length }}</div><div class="lbl">Lámparas</div></div>
+        <div class="stat-card stat-emergency"><div class="val">{{ emergencyLampCount }}</div><div class="lbl">En emergencia</div></div>
+      </div>
+
+      <section class="profile-grid">
+        <article class="profile-row" v-for="profile in alertProfiles" :key="profile.callType">
+          <div class="profile-head"><span class="profile-name">{{ profile.label }}</span><label class="toggle"><input type="checkbox" v-model="profile.audioEnabled" @change="saveProfile(profile)"> Audio</label></div>
+          <div class="profile-fields">
+            <div class="field"><label>Color</label><select v-model.number="profile.colorPreset" @change="saveProfile(profile)"><option v-for="n in 20" :value="n-1">{{ n }} · {{ colorLabels[n-1] }}</option></select></div>
+            <div class="field"><label>Animación</label><select v-model.number="profile.animationPreset" @change="saveProfile(profile)"><option v-for="n in 20" :value="n-1">{{ n }} · {{ animationLabels[n-1] }}</option></select></div>
+            <div class="field"><label>Sonido</label><select v-model.number="profile.soundPreset" @change="saveProfile(profile)"><option v-for="n in 20" :value="n-1">{{ n }} · {{ soundLabels[n-1] }}</option></select></div>
+          </div>
+          <div class="profile-head"><span class="sub">{{ profile.enabled ? 'Activo' : 'Reservado' }}</span><span class="swatch" :style="{ background: presetColors[profile.colorPreset] }"></span></div>
+        </article>
+      </section>
+
+      <div class="lamp-layout">
+        <section>
+          <div v-if="lamps.length" class="lamp-list">
+            <article class="lamp-row" v-for="lamp in lamps" :key="lamp.lampId">
+              <div>
+                <div class="lamp-title">
+                  <span class="lamp-state" :class="lamp.appliedState"></span>
+                  <div v-if="editingLampId === lamp.lampId" class="edit-row">
+                    <input
+                      class="edit-input"
+                      v-model="editLampName"
+                      @keyup.enter="saveEditLamp(lamp)"
+                      @keyup.escape="cancelEditLamp"
+                      autofocus
+                    />
+                    <button class="btn-xs btn-save" @click="saveEditLamp(lamp)">✓</button>
+                    <button class="btn-xs btn-cancel" @click="cancelEditLamp">✕</button>
+                  </div>
+                  <span v-else>{{ lamp.name || `Lámpara ${lamp.lampId.slice(-4)}` }}</span>
+                </div>
+                <div class="sub mono">{{ lamp.lampId }} · {{ isOnline(lamp) ? 'En línea' : 'Sin conexión' }}</div>
+              </div>
+              <div class="lamp-controls">
+                <label class="toggle"><input type="checkbox" v-model="lamp.audioEnabled" @change="saveLamp(lamp)"> Sonido</label>
+                <div class="field"><label>Brillo {{ lamp.brightness }}%</label><input type="range" min="1" max="100" v-model.number="lamp.brightness" @change="saveLamp(lamp)"></div>
+                <div class="field"><label>Volumen {{ lamp.buzzerVolume }}%</label><input type="range" min="0" max="100" v-model.number="lamp.buzzerVolume" @change="saveLamp(lamp)"></div>
+              </div>
+              <div class="lamp-controls">
+                <button class="btn-action" title="Probar alerta normal" @click="testLamp(lamp, 'normal')">🔔</button>
+                <button class="btn-action" title="Probar alerta de emergencia" @click="testLamp(lamp, 'emergency')">🚨</button>
+                <button v-if="editingLampId !== lamp.lampId" class="btn-xs btn-edit" @click="startEditLamp(lamp)">✏️ Editar</button>
+                <button v-if="editingLampId !== lamp.lampId" class="btn-xs btn-delete" @click="deleteLamp(lamp)">🗑 Eliminar</button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-state"><p>Las lámparas aparecerán aquí al registrarse por ESP-NOW.</p></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         SETTINGS VIEW — pantalla de sala
+    ══════════════════════════════════════ -->
+    <div v-show="tab === 'settings'">
+      <div class="section-header">
+        <span class="section-title">Pantalla de sala</span>
+        <a class="btn-xs btn-open-screen" href="/location.html" target="_blank" rel="noopener">🖥️ Abrir pantalla</a>
+      </div>
+      <section class="settings-card">
+        <div class="settings-grid">
+          <div class="field">
+            <label>Nombre de la sede</label>
+            <input type="text" class="full" v-model="locationSettings.name" placeholder="Ej. Clínica Central - Piso 3">
+          </div>
+          <div class="field">
+            <label>Sonido de llamado normal</label>
+            <select v-model="locationSettings.alertSound">
+              <option v-for="f in soundFiles" :key="f" :value="f">{{ f }}</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Sonido de emergencia</label>
+            <select v-model="locationSettings.emergencySound">
+              <option v-for="f in soundFiles" :key="f" :value="f">{{ f }}</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Volumen de sonido ({{ locationSettings.soundVolume }}%)</label>
+            <input type="range" min="0" max="100" v-model.number="locationSettings.soundVolume">
+          </div>
+          <label class="toggle"><input type="checkbox" v-model="locationSettings.soundEnabled"> Sonido habilitado</label>
+          <label class="toggle"><input type="checkbox" v-model="locationSettings.voiceEnabled"> Anuncio por voz (en vez de sonido)</label>
+        </div>
+
+        <div class="settings-grid">
+          <div class="field"><label>Color de fondo</label><input type="color" v-model="locationSettings.backgroundColor"></div>
+          <div class="field"><label>Color de encabezado</label><input type="color" v-model="locationSettings.headerColor"></div>
+          <div class="field"><label>Color de texto</label><input type="color" v-model="locationSettings.textColor"></div>
+          <div class="field"><label>Color llamado normal</label><input type="color" v-model="locationSettings.normalCallColor"></div>
+          <div class="field"><label>Color de emergencia</label><input type="color" v-model="locationSettings.emergencyCallColor"></div>
+          <div class="field"><label>Color del cronómetro</label><input type="color" v-model="locationSettings.timerColor"></div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="field"><label>Velocidad de voz ({{ locationSettings.voiceRate }})</label><input type="range" min="0.5" max="2" step="0.1" v-model.number="locationSettings.voiceRate"></div>
+          <div class="field"><label>Tono de voz ({{ locationSettings.voicePitch }})</label><input type="range" min="0.5" max="2" step="0.1" v-model.number="locationSettings.voicePitch"></div>
+          <div class="field"><label>Volumen de voz ({{ locationSettings.voiceVolume }})</label><input type="range" min="0" max="1" step="0.1" v-model.number="locationSettings.voiceVolume"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar configuración</button>
+          <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- Assignment modal, triggered from a device row's "Lámparas" button -->
+    <div v-if="assignDevice" class="modal-overlay" @click.self="closeAssignModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 class="assign-title">Asignar lámparas — {{ assignDevice.name || assignDevice.deviceId.slice(-6) }}</h2>
+          <button class="btn-xs btn-cancel" @click="closeAssignModal">✕</button>
+        </div>
+        <p class="assign-copy">Marque una o varias lámparas para este llamador. Una lámpara compartida prioriza automáticamente las emergencias.</p>
+        <div v-if="lamps.length" class="assignment-list">
+          <label class="assignment-item" v-for="lamp in lamps" :key="lamp.lampId"><input type="checkbox" :value="lamp.lampId" v-model="selectedLampIds"><span>{{ lamp.name || `Lámpara ${lamp.lampId.slice(-4)}` }}</span></label>
+        </div>
+        <p v-else class="assign-copy">Aún no hay lámparas registradas.</p>
+        <div class="modal-actions">
+          <button class="btn-xs btn-cancel" @click="closeAssignModal">Cancelar</button>
+          <button class="btn-xs btn-save" @click="saveAssignments">Guardar asignación</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+
+createApp({
+  setup() {
+    const tab = ref('monitor');
+    const connected = ref(false);
+    const activeCalls = ref([]);
+    const devices = ref([]);
+    const callHistory = ref([]);
+    const lamps = ref([]);
+    const alertProfiles = ref([]);
+    const assignDevice = ref(null);
+    const selectedLampIds = ref([]);
+    const locationSettings = ref({
+      name: '', backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      normalCallColor: '#0ea5e9', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
+      soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
+      voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
+    });
+    const soundFiles = ['clinum_normal.mp3','clinum_emergency.mp3','alert.mp3','bell.mp3','chime.mp3','ding.mp3','discordcall.mp3','emergency-loop.mp3'];
+    const settingsSavedAt = ref(0);
+    const editingId = ref(null);
+    const editName = ref('');
+    const editingLampId = ref(null);
+    const editLampName = ref('');
+    const endingId = ref(null);
+    const now = ref(Date.now());
+
+    let clockTimer;
+    const socket = io();
+
+    socket.on('connect',    () => { connected.value = true; });
+    socket.on('disconnect', () => { connected.value = false; });
+
+    socket.on('active_calls', (calls) => { activeCalls.value = calls; });
+
+    socket.on('call_state', (state) => {
+      const idx = activeCalls.value.findIndex(c => c.deviceId === state.deviceId);
+      if (state.active) {
+        if (idx >= 0) activeCalls.value[idx] = state;
+        else activeCalls.value.push(state);
+      } else {
+        if (idx >= 0) activeCalls.value.splice(idx, 1);
+      }
+    });
+
+    socket.on('device_list',       (list)   => { devices.value = list; });
+    socket.on('device_registered', (device) => {
+      const idx = devices.value.findIndex(d => d.deviceId === device.deviceId);
+      if (idx >= 0) devices.value[idx] = device;
+      else devices.value.push(device);
+    });
+
+    socket.on('location_settings', (settings) => { locationSettings.value = settings; });
+
+    socket.on('call_history', (history) => {
+      callHistory.value = [...history].slice(0, 10).reverse();
+    });
+    socket.on('lamp_list', (list) => { lamps.value = list; });
+    socket.on('lamp_assignments', ({ callerDeviceId, lampIds }) => {
+      if (assignDevice.value?.deviceId === callerDeviceId) selectedLampIds.value = lampIds;
+    });
+
+    const load = async () => {
+      try {
+        const [c, d, h, l, p, s] = await Promise.all([
+          fetch('/calls/active').then(r => r.json()),
+          fetch('/devices').then(r => r.json()),
+          fetch('/calls/history').then(r => r.json()),
+          fetch('/lamps').then(r => r.json()),
+          fetch('/lamp-alert-profiles').then(r => r.json()),
+          fetch('/location-settings').then(r => r.json()),
+        ]);
+        activeCalls.value = c.items || [];
+        devices.value     = d.items || [];
+        callHistory.value = [...(h.items || [])].slice(0, 10).reverse();
+        lamps.value       = l.items || [];
+        alertProfiles.value = p.items || [];
+        locationSettings.value = s;
+      } catch (e) { console.error('load failed', e); }
+    };
+
+    // ── Computed ──
+    const emergencyCount = computed(() =>
+      activeCalls.value.filter(c => c.call_type === 'emergency').length
+    );
+    const onlineCount = computed(() =>
+      devices.value.filter(d => isOnline(d)).length
+    );
+    const onlineLampCount = computed(() => lamps.value.filter(l => isOnline(l)).length);
+    const emergencyLampCount = computed(() => lamps.value.filter(l => l.appliedState === 'emergency').length);
+    const presetColors = ['#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e','#ffffff','#94a3b8','#facc15'];
+    const colorLabels = ['Rojo puro','Naranja rojizo','Naranja','Ámbar dorado','Verde lima','Verde','Verde esmeralda','Turquesa','Celeste','Azul cielo','Azul','Azul violeta','Púrpura','Violeta magenta','Magenta fucsia','Rosa fuerte','Rosa rojizo','Blanco','Azul grisáceo','Dorado cálido'];
+    const animationLabels = ['Sólido fijo','Parpadeo simple','Pulso respiración','Cometa horario','Doble destello rápido','Llenado progresivo','Cometa cola larga','Rayas alternas','Puntos saltarines','Rebote lineal','Media vuelta pulsante','Puntos densos','Puntos dispersos','Onda senoidal','Doble destello lento','Puntos de colores','Sirena ambulancia','Cometa antihorario','Doble destello medio','Arcoíris rotando'];
+    const soundLabels = ['1 pulso corto','2 pulsos','3 pulsos','4 pulsos rápidos','1 pulso largo','2 pulsos','3 pulsos','4 pulsos','1 pulso','2 pulsos largos','3 pulsos','4 pulsos','1 pulso','2 pulsos','3 pulsos largos','4 pulsos rápidos','1 pulso','2 pulsos','3 pulsos','4 pulsos largos'];
+
+    // ── Helpers ──
+    const isOnline = (d) => d.online && (now.value - (d.lastSeenMs || 0)) < 90000;
+
+    const getDeviceName = (deviceId) => {
+      const d = devices.value.find(x => x.deviceId === deviceId);
+      return d?.name || deviceId.slice(-6);
+    };
+
+    const formatDuration = (ms) => {
+      if (!ms) return '00:00';
+      const s = Math.max(0, Math.floor((now.value - ms) / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+      return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    };
+
+    const formatLastSeen = (ms) => {
+      const d = Math.floor((now.value - ms) / 1000);
+      if (d < 60)   return `${d}s`;
+      if (d < 3600) return `${Math.floor(d/60)}m`;
+      return `${Math.floor(d/3600)}h`;
+    };
+
+    const formatMs = (ms) => {
+      if (!ms) return '—';
+      const s = Math.floor(ms / 1000);
+      return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+    };
+
+    const formatTime = (ms) => {
+      if (!ms) return '—';
+      return new Date(ms).toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    };
+
+    const formatDateTime = (ms) => {
+      if (!ms) return '—';
+      const d = new Date(ms);
+      const date = d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      const time = d.toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      return `${date} ${time}`;
+    };
+
+    // ── Device editing ──
+    const startEdit = (device) => {
+      editingId.value = device.deviceId;
+      editName.value  = device.name || '';
+    };
+
+    const saveEdit = async (deviceId) => {
+      const name = editName.value.trim();
+      try {
+        await fetch(`/devices/${deviceId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const d = devices.value.find(x => x.deviceId === deviceId);
+        if (d) d.name = name;
+      } catch (e) { console.error('save failed', e); }
+      editingId.value = null;
+    };
+
+    const cancelEdit = () => { editingId.value = null; };
+
+    const saveLocationType = async (device) => {
+      try {
+        await fetch(`/devices/${device.deviceId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callerLocationType: device.callerLocationType }) });
+      } catch (e) { console.error('saveLocationType failed', e); }
+    };
+
+    const deleteDevice = async (device) => {
+      const name = device.name || device.deviceId.slice(-6);
+      if (!confirm(`¿Eliminar el dispositivo "${name}"?\n\nEsto borrará su registro y estado activo (el historial de llamados se conserva).`)) return;
+      try {
+        await fetch(`/devices/${device.deviceId}`, { method: 'DELETE' });
+        const idx = devices.value.findIndex(x => x.deviceId === device.deviceId);
+        if (idx >= 0) devices.value.splice(idx, 1);
+      } catch (e) { console.error('deleteDevice failed', e); }
+    };
+
+    const endCall = async (deviceId) => {
+      if (endingId.value) return;
+      endingId.value = deviceId;
+      try {
+        await fetch(`/calls/${deviceId}/end`, { method: 'POST' });
+      } catch (e) { console.error('endCall failed', e); }
+      endingId.value = null;
+    };
+
+    const saveLamp = async (lamp) => {
+      await fetch(`/lamps/${lamp.lampId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: lamp.name, audioEnabled: lamp.audioEnabled, brightness: lamp.brightness, buzzerVolume: lamp.buzzerVolume }) });
+    };
+
+    const startEditLamp = (lamp) => {
+      editingLampId.value = lamp.lampId;
+      editLampName.value  = lamp.name || '';
+    };
+
+    const saveEditLamp = async (lamp) => {
+      lamp.name = editLampName.value.trim();
+      await saveLamp(lamp);
+      editingLampId.value = null;
+    };
+
+    const cancelEditLamp = () => { editingLampId.value = null; };
+
+    const deleteLamp = async (lamp) => {
+      const name = lamp.name || `Lámpara ${lamp.lampId.slice(-4)}`;
+      if (!confirm(`¿Eliminar la lámpara "${name}"?\n\nEsto borrará su registro y sus asignaciones a llamadores.`)) return;
+      try {
+        await fetch(`/lamps/${lamp.lampId}`, { method: 'DELETE' });
+        const idx = lamps.value.findIndex(x => x.lampId === lamp.lampId);
+        if (idx >= 0) lamps.value.splice(idx, 1);
+      } catch (e) { console.error('deleteLamp failed', e); }
+    };
+
+    const testLamp = async (lamp, state) => {
+      await fetch(`/lamps/${lamp.lampId}/test`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state, durationMs: 3000 }) });
+    };
+
+    const loadAssignments = async () => {
+      selectedLampIds.value = [];
+      if (!assignDevice.value) return;
+      const response = await fetch(`/devices/${assignDevice.value.deviceId}/lamps`).then(r => r.json());
+      selectedLampIds.value = response.lampIds || [];
+    };
+
+    const openAssignModal = (device) => {
+      assignDevice.value = device;
+      loadAssignments();
+    };
+
+    const closeAssignModal = () => { assignDevice.value = null; selectedLampIds.value = []; };
+
+    const saveAssignments = async () => {
+      if (!assignDevice.value) return;
+      await fetch(`/devices/${assignDevice.value.deviceId}/lamps`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lampIds: selectedLampIds.value }) });
+      closeAssignModal();
+    };
+
+    const saveProfile = async (profile) => {
+      await fetch(`/lamp-alert-profiles/${profile.callType}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
+    };
+
+    const saveLocationSettings = async () => {
+      const response = await fetch('/location-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(locationSettings.value) }).then(r => r.json());
+      locationSettings.value = response;
+      settingsSavedAt.value = Date.now();
+      setTimeout(() => { settingsSavedAt.value = 0; }, 2500);
+    };
+
+    onMounted(() => { load(); clockTimer = setInterval(() => { now.value = Date.now(); }, 1000); });
+    onUnmounted(() => { clearInterval(clockTimer); socket.disconnect(); });
+
+    return {
+      tab, connected, activeCalls, devices, callHistory, lamps, alertProfiles, assignDevice, selectedLampIds, presetColors,
+      colorLabels, animationLabels, soundLabels, locationSettings, soundFiles, settingsSavedAt,
+      editingId, editName, editingLampId, editLampName, endingId, now,
+      emergencyCount, onlineCount, onlineLampCount, emergencyLampCount,
+      isOnline, getDeviceName, formatDuration,
+      formatLastSeen, formatMs, formatTime, formatDateTime,
+      startEdit, saveEdit, cancelEdit, deleteDevice, endCall, saveLocationType,
+      saveLamp, testLamp, startEditLamp, saveEditLamp, cancelEditLamp, deleteLamp,
+      openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

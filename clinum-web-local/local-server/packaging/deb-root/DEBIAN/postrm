@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+if [ "$1" = "purge" ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  rm -rf /var/lib/clinum-web-local /var/log/clinum-web-local
+  if getent passwd clinum >/dev/null; then
+    deluser --system clinum >/dev/null 2>&1 || true
+  fi
+fi
+exit 0

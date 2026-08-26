@@ -1,0 +1,39 @@
+#!/bin/bash
+set -e
+
+APP_USER="clinum"
+APP_GROUP="clinum"
+ETCDIR="/etc/clinum-web-local"
+VARDIR="/var/lib/clinum-web-local"
+LOGDIR="/var/log/clinum-web-local"
+
+# Usuario de sistema (sin login, sin home)
+if ! getent passwd "$APP_USER" >/dev/null; then
+  adduser --system --group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+fi
+
+# Acceso al puerto serial (/dev/ttyUSB* , /dev/ttyACM*)
+if getent group dialout >/dev/null; then
+  adduser "$APP_USER" dialout || true
+fi
+if getent group plugdev >/dev/null; then
+  adduser "$APP_USER" plugdev || true
+fi
+
+# Directorios de datos y logs
+mkdir -p "$VARDIR" "$LOGDIR"
+chown -R "$APP_USER":"$APP_GROUP" "$VARDIR" "$LOGDIR"
+chmod 0755 "$VARDIR" "$LOGDIR"
+
+# .env por defecto (conffile: no lo sobreescribe en upgrades)
+if [ ! -f "$ETCDIR/.env" ]; then
+  cp "$ETCDIR/.env.template" "$ETCDIR/.env"
+  chown root:"$APP_GROUP" "$ETCDIR/.env"
+  chmod 0640 "$ETCDIR/.env"
+fi
+
+# systemd
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable clinum-web-local >/dev/null 2>&1 || true
+
+exit 0

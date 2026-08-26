@@ -1,0 +1,20 @@
+[Unit]
+Description=Clinum Web Local Bridge Server
+Documentation=file:///opt/clinum-web-local
+After=network.target
+
+[Service]
+Type=simple
+User=clinum
+Group=clinum
+WorkingDirectory=/opt/clinum-web-local
+EnvironmentFile=/etc/clinum-web-local/.env
+ExecStart=/opt/clinum-web-local/runtime/bin/node /opt/clinum-web-local/dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=clinum-web-local
+
+[Install]
+WantedBy=multi-user.target
