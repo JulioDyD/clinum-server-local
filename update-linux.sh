@@ -23,7 +23,7 @@ echo "[3/4] Actualizando desde GitHub..."
 cd /tmp
 rm -rf clinum-server-local
 git clone https://github.com/JulioDyD/clinum-server-local.git clinum-server-local
-cd clinum-server-local/local-server
+cd clinum-server-local/clinum-web-local/local-server
 npm ci --production
 npm run build
 
