@@ -11,8 +11,13 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "[1/7] Instalando Node.js 20..."
+# Solucionar problema temporal con repositorio de Chrome
+if [ -f /etc/apt/sources.list.d/google-chrome.list ]; then
+  sudo mv /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.list.bak 2>/dev/null || true
+fi
+
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get update
+apt-get update || apt-get update --allow-unauthenticated
 apt-get install -y nodejs git curl ufw
 
 echo "[2/7] Configurando usuario y directorios..."
