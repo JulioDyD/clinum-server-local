@@ -39,7 +39,7 @@ git clone https://github.com/JulioDyD/clinum-server-local.git clinum-server-loca
 
 echo "[4/7] Preparando servidor local..."
 cd clinum-server-local/clinum-web-local/local-server
-npm ci --production
+npm ci
 npm run build
 
 echo "[5/7] Configurando variables de entorno..."
