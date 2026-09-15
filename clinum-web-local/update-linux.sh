@@ -10,22 +10,29 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo "[1/4] Creando backup..."
+echo "[1/5] Creando backup..."
 BACKUP_FILE="/var/backups/clinum/backup-$(date +%Y%m%d_%H%M%S).tar.gz"
 mkdir -p /var/backups/clinum
 tar -czf $BACKUP_FILE -C /opt/clinum-server .
 echo "Backup creado: $BACKUP_FILE"
 
-echo "[2/4] Deteniendo servicio..."
+echo "[2/5] Deteniendo servicio..."
 systemctl stop clinum-server
 
-echo "[3/4] Actualizando desde GitHub..."
+echo "[3/5] Actualizando desde GitHub..."
 cd /tmp
 rm -rf clinum-server-local
 git clone https://github.com/JulioDyD/clinum-server-local.git clinum-server-local
-cd clinum-server-local/local-server
-npm ci --production
+cd clinum-server-local/clinum-web-local/local-server
+npm ci
+npm rebuild better-sqlite3 serialport 2>/dev/null || true
 npm run build
+
+# Validar que el build generó dist/index.js
+if [ ! -f dist/index.js ]; then
+  echo "ERROR: La compilación TypeScript falló"
+  exit 1
+fi
 
 if [ -f /opt/clinum-server/.env ]; then
     echo "Manteniendo configuración existente..."
@@ -33,7 +40,7 @@ if [ -f /opt/clinum-server/.env ]; then
 else
     cat > .env << EOF
 LOCAL_HTTP_PORT=8081
-SERIAL_PORT=/dev/ttyUSB0
+SERIAL_PORT=/dev/ttyACM0
 SERIAL_BAUD=115200
 FIREBASE_PROJECT_ID=clinum-production
 LOCAL_DB_FILE=/var/lib/clinum/clinum.db
@@ -43,12 +50,16 @@ NODE_ENV=production
 EOF
 fi
 
-echo "[4/4] Instalando actualización..."
-cp -r * /opt/clinum-server/
+echo "[4/5] Instalando actualización..."
+shopt -s dotglob
+cp -ra * /opt/clinum-server/
+test -f /opt/clinum-server/.env && echo ".env copiado correctamente" || echo "ADVERTENCIA: .env no fue copiado"
 cd /opt/clinum-server
 chown -R clinum:clinum /opt/clinum-server
 
-systemctl start clinum-server
+systemctl daemon-reload
+systemctl restart clinum-server
+systemctl status clinum-server --no-pager || true
 
 echo ""
 echo "========================================"
