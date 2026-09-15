@@ -45,7 +45,7 @@ npm run build
 echo "[5/7] Configurando variables de entorno..."
 cat > .env << EOF
 LOCAL_HTTP_PORT=8081
-SERIAL_PORT=/dev/ttyUSB0
+SERIAL_PORT=/dev/ttyACM0
 SERIAL_BAUD=115200
 FIREBASE_PROJECT_ID=clinum-production
 LOCAL_DB_FILE=/var/lib/clinum/clinum.db
@@ -53,6 +53,14 @@ LOCAL_ONLY=false
 CORS_ORIGIN=*
 NODE_ENV=production
 EOF
+
+# Validar que el archivo .env se creó correctamente
+if [ ! -f .env ]; then
+  echo "ERROR: No se pudo crear el archivo .env"
+  exit 1
+fi
+echo "Archivo .env creado correctamente"
+cat .env
 
 echo "[6/7] Instalando en ubicación final..."
 cp -r * /opt/clinum-server/

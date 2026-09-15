@@ -33,7 +33,7 @@ if [ -f /opt/clinum-server/.env ]; then
 else
     cat > .env << EOF
 LOCAL_HTTP_PORT=8081
-SERIAL_PORT=/dev/ttyUSB0
+SERIAL_PORT=/dev/ttyACM0
 SERIAL_BAUD=115200
 FIREBASE_PROJECT_ID=clinum-production
 LOCAL_DB_FILE=/var/lib/clinum/clinum.db
@@ -42,6 +42,13 @@ CORS_ORIGIN=*
 NODE_ENV=production
 EOF
 fi
+
+# Validar que el archivo .env existe
+if [ ! -f .env ]; then
+  echo "ERROR: No se pudo crear/actualizar el archivo .env"
+  exit 1
+fi
+echo "Archivo .env configurado correctamente"
 
 echo "[4/4] Instalando actualización..."
 cp -r * /opt/clinum-server/
