@@ -18,7 +18,7 @@ fi
 
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get update || apt-get update --allow-unauthenticated
-apt-get install -y nodejs git curl ufw
+apt-get install -y nodejs git curl ufw build-essential python3
 
 echo "[2/7] Configurando usuario y directorios..."
 useradd -r -s /bin/false clinum || true
@@ -67,7 +67,7 @@ cp -r * /opt/clinum-server/
 cd /opt/clinum-server
 chown -R clinum:clinum /opt/clinum-server
 
-chmod 660 /dev/ttyUSB0 || echo "Ajusta SERIAL_PORT en .env si usas otro puerto"
+chmod 660 /dev/ttyACM0 || echo "Ajusta SERIAL_PORT en .env si usas otro puerto"
 
 echo "[7/7] Configurando servicio systemd..."
 cat > /etc/systemd/system/clinum-server.service << 'EOF'
@@ -86,9 +86,11 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
+
+# Security settings más relajadas para evitar errores NAMESPACE
+NoNewPrivileges=false
+PrivateTmp=false
+ProtectSystem=false
 ReadWritePaths=/var/lib/clinum /opt/clinum-server/data
 
 [Install]
