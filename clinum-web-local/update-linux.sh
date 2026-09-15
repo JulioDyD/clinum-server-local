@@ -10,16 +10,16 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo "[1/5] Creando backup..."
+echo "[1/6] Creando backup..."
 BACKUP_FILE="/var/backups/clinum/backup-$(date +%Y%m%d_%H%M%S).tar.gz"
 mkdir -p /var/backups/clinum
 tar -czf $BACKUP_FILE -C /opt/clinum-server .
 echo "Backup creado: $BACKUP_FILE"
 
-echo "[2/5] Deteniendo servicio..."
+echo "[2/6] Deteniendo servicio..."
 systemctl stop clinum-server
 
-echo "[3/5] Actualizando desde GitHub..."
+echo "[3/6] Actualizando desde GitHub..."
 cd /tmp
 rm -rf clinum-server-local
 git clone https://github.com/JulioDyD/clinum-server-local.git clinum-server-local
@@ -50,13 +50,44 @@ NODE_ENV=production
 EOF
 fi
 
-echo "[4/5] Instalando actualización..."
+echo "[4/6] Reescribiendo servicio systemd..."
+NODE_BIN=$(which node 2>/dev/null || echo "/usr/bin/node")
+cat > /etc/systemd/system/clinum-server.service << EOF
+[Unit]
+Description=Clinum Local Server
+After=network.target
+
+[Service]
+Type=simple
+User=clinum
+Group=clinum
+WorkingDirectory=/opt/clinum-server
+Environment="NODE_ENV=production"
+EnvironmentFile=/opt/clinum-server/.env
+ExecStart=${NODE_BIN} dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=false
+PrivateTmp=false
+ProtectSystem=false
+ReadWritePaths=/var/lib/clinum /opt/clinum-server/data
+
+[Install]
+WantedBy=multi-user.target
+EOF
+echo "Servicio systemd actualizado"
+
+echo "[5/6] Instalando actualización..."
 shopt -s dotglob
 cp -ra * /opt/clinum-server/
 test -f /opt/clinum-server/.env && echo ".env copiado correctamente" || echo "ADVERTENCIA: .env no fue copiado"
 cd /opt/clinum-server
 chown -R clinum:clinum /opt/clinum-server
 
+echo "[6/6] Arrancando servicio..."
 systemctl daemon-reload
 systemctl restart clinum-server
 systemctl status clinum-server --no-pager || true
