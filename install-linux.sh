@@ -24,6 +24,7 @@ echo "[2/7] Configurando usuario y directorios..."
 useradd -r -s /bin/false clinum || true
 usermod -a -G dialout clinum || true
 mkdir -p /opt/clinum-server
+mkdir -p /opt/clinum-server/data
 mkdir -p /var/lib/clinum
 mkdir -p /var/log/clinum
 mkdir -p /var/backups/clinum
