@@ -85,6 +85,9 @@ rm -rf "$OPT/dist" "$OPT/node_modules" "$OPT/public"
 cp -r "$APP_DIR/dist"         "$OPT/dist"
 cp -r "$APP_DIR/node_modules" "$OPT/node_modules"
 cp -r "$APP_DIR/public"       "$OPT/public"
+# package.json is required at runtime: Node needs "type": "module" to load
+# dist/index.js (ESM imports), and /health reports the installed version.
+cp -f "$APP_DIR/package.json" "$OPT/package.json"
 
 # 4. Control con la arquitectura correcta (sin mutar el template en git:
 #    se construye sobre una copia temporal del arbol).
