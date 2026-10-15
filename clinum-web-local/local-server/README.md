@@ -38,9 +38,33 @@ npm run start
 
 ## Endpoints
 
-- `GET /health`
+- `GET /health` (incluye `version`, `commit` y `uptimeSeconds`)
+- `GET /api/version`
 - `GET /calls/active`
 - `GET /calls/all`
+
+## Versionado
+
+La versión actual vive en un solo lugar: `package.json` → `"version"`
+(hoy **v1.0.0**). Se muestra en la UI (pestaña **Configuración** →
+"Versión del sistema") y se sirve por `GET /api/version`.
+
+Al ejecutar `npm run build` el script `prebuild`
+(`scripts/write-version.mjs`) genera `dist/version.json` con versión,
+commit, rama, fecha de compilación y versión de Node. Ese archivo se
+ignora en git y se regenera siempre (el instalador de Linux compila en
+la máquina destino).
+
+Para subir la versión:
+
+```bash
+npm run version:patch   # 1.0.0 -> 1.0.1   (o version:minor / version:major)
+npm run build
+```
+
+Los scripts usan `npm version --no-git-tag-version`: solo actualizan
+`package.json` y `package-lock.json`, sin crear commits ni tags. Luego
+se hace commit y push con normalidad.
 
 ## Realtime
 

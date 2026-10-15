@@ -38,31 +38,45 @@ export class MemoryStore {
 
   // ── Devices ──────────────────────────────────────────────────────────────
 
-  public registerDevice(deviceId: string, mac: string): DeviceRecord {
+  public registerDevice(
+    deviceId: string,
+    mac: string,
+    initialName?: string,
+    transport?: DeviceRecord["transport"],
+    firmwareVersion?: string,
+  ): DeviceRecord {
     const now = Date.now();
     const existing = this.devices.get(deviceId);
+    const existingName = existing?.name?.trim();
+    const hasGeneratedName = !existingName || /^Dispositivo(?: [0-9A-F]{4})?$/i.test(existingName);
     const record: DeviceRecord = {
       deviceId,
       mac: mac || existing?.mac || "",
+      name: initialName && hasGeneratedName ? initialName : existing?.name ?? initialName,
       online: true,
       lastSeenMs: now,
       registeredAtMs: existing?.registeredAtMs ?? now,
       callerLocationType: existing?.callerLocationType ?? "cama",
+      transport: transport ?? existing?.transport,
+      firmwareVersion: firmwareVersion || existing?.firmwareVersion,
     };
     this.devices.set(deviceId, record);
     return record;
   }
 
-  public touchDevice(deviceId: string, mac?: string): DeviceRecord {
+  public touchDevice(deviceId: string, mac?: string, transport?: DeviceRecord["transport"], firmwareVersion?: string): DeviceRecord {
     const existing = this.devices.get(deviceId);
     const now = Date.now();
     const record: DeviceRecord = {
       deviceId,
       mac: mac || existing?.mac || "",
+      name: existing?.name,
       online: true,
       lastSeenMs: now,
       registeredAtMs: existing?.registeredAtMs ?? now,
       callerLocationType: existing?.callerLocationType ?? "cama",
+      transport: transport ?? existing?.transport,
+      firmwareVersion: firmwareVersion || existing?.firmwareVersion,
     };
     this.devices.set(deviceId, record);
     return record;

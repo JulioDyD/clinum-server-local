@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Pantalla de sala · Clinum Local</title>
+  <title>Pantalla de sala · Clinum</title>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <script src="/vendor/vue.global.prod.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
@@ -16,7 +17,7 @@
     }
     .header-row {
       display: flex; background-color: var(--bg-color, #0f172a); color: var(--header-color, #f59e0b);
-      font-size: 2.4rem; font-weight: 800; padding: 0.6rem 1.5rem; border-bottom: 3px solid var(--header-color, #f59e0b);
+      font-size: 2.5rem; font-weight: bold; padding: 10px 20px; border-bottom: 2px solid var(--header-color, #f59e0b);
     }
     .header-col.llamando { flex: 1 1 auto; }
     .header-col.llam { flex: 0 0 140px; text-align: center; }
@@ -24,12 +25,12 @@
 
     .calls-container { flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column; padding: 0.6rem 0; }
     .call-row {
-      display: flex; align-items: center; padding: 0.9rem 1.2rem; margin: 0 1.2rem 0.4rem; border-radius: 6px;
-      font-size: 2.1rem; gap: 1rem; background: rgba(30,41,59,0.85);
+      display: flex; align-items: center; padding: 15px 20px; margin: 0 1.2rem 0.4rem; border-radius: 6px;
+      font-size: 2.2rem; gap: 1rem; background: rgba(30,41,59,0.85);
       border-left: 4px solid var(--normal-call-color, #0ea5e9);
       transition: background-color 0.3s ease;
     }
-    .call-row.emergency-call { background: rgba(239,68,68,0.18); border-left: 6px solid var(--emergency-call-color, #ef4444); }
+    .call-row.emergency-call { background: rgba(239,68,68,0.18); border-left: 6px solid var(--emergency-call-color, #ef4444); box-shadow: 0 0 20px rgba(239,68,68,0.6); }
     .call-row.active-call { animation: pulseRow 2s ease-in-out infinite; }
     .call-row.new-call { animation: highlightRow 1s ease-in-out infinite; border-left-color: #f59e0b !important; }
     @keyframes pulseRow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
@@ -40,10 +41,16 @@
     .call-col.tiempo { flex: 0 0 220px; text-align: right; font-family: 'Courier New', monospace; font-weight: 800; color: var(--timer-color, #22c55e); }
     .call-col.tiempo.emergency-time { color: var(--emergency-call-color, #ef4444); }
 
-    .bed-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--normal-call-color, #0ea5e9); }
+    .bed-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px; margin-right: 15px; color: var(--normal-call-color, #0ea5e9); }
+    .bed-icon svg { width: 100%; height: 100%; }
     .call-row.emergency-call .bed-icon { color: var(--emergency-call-color, #ef4444); filter: drop-shadow(0 0 6px rgba(239,68,68,0.7)); }
     .mirror-icon { transform: scaleX(-1); }
-    .call-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-text { display: inline-flex; align-items: center; white-space: nowrap; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+    .call-base { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .patient-gap { display: inline-block; white-space: pre; flex-shrink: 0; }
+    .patient-icon { display: inline-flex; align-items: center; flex-shrink: 0; width: 44px; height: 44px; margin-right: 10px; }
+    .patient-icon svg { width: 100%; height: 100%; }
+    .patient-name { white-space: nowrap; flex-shrink: 0; }
     .call-row.emergency-call .call-text { color: var(--emergency-call-color, #ef4444); }
     .call-row:not(.emergency-call) .call-text { color: var(--normal-call-color, #0ea5e9); }
 
@@ -53,15 +60,17 @@
     .call-animation-leave-to { opacity: 0; transform: translateX(-30px) scale(0.95); }
     .call-animation-move { transition: transform 0.8s ease; }
 
-    .no-calls-message { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; }
+    .no-calls-message { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; text-align: center; }
     .no-calls-message .big-icon { font-size: 5rem; }
-    .no-calls-message h2 { font-weight: 600; font-size: 1.6rem; margin: 0; }
+    .no-calls-message h2 { font-weight: 600; font-size: 2rem; margin: 20px 0 0; color: var(--header-color, #f59e0b); }
 
     .footer {
-      display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem;
-      border-top: 2px solid var(--header-color, #f59e0b); font-size: 1.15rem; color: #94a3b8;
+      display: flex; justify-content: space-between; align-items: center; padding: 12px 22px;
+      border-top: 1px solid var(--header-color, #f59e0b); font-size: 1.2rem; color: #94a3b8;
+      background-color: rgba(26,26,26,0.9); margin-top: auto;
     }
-    .last-updated { font-family: 'Courier New', monospace; font-weight: 700; color: var(--text-color, #fff); }
+    .location-info { font-weight: bold; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
+    .last-updated { font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
   </style>
 </head>
 <body>
@@ -83,12 +92,9 @@
             :class="{ 'emergency-call': call.isEmergency, 'new-call': newCallIds.includes(call.deviceId) }"
           >
             <div class="call-col llamando">
-              <span class="bed-icon" :class="{ 'mirror-icon': call.mirror }">
-                <svg v-if="call.locationType === 'sillon'" viewBox="0 0 24 24" width="32" height="32"><rect x="5" y="4" width="14" height="10" rx="2" fill="currentColor"/><rect x="3" y="12" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="17" y="12" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="6" y="15" width="12" height="4" rx="1" fill="currentColor"/></svg>
-                <svg v-else-if="call.locationType === 'bano'" viewBox="0 0 24 24" width="32" height="32"><rect x="6" y="3" width="12" height="6" rx="2" fill="currentColor"/><path d="M5 10 h14 a2 2 0 0 1 2 2 v2 a7 7 0 0 1 -7 7 h-4 a7 7 0 0 1 -7 -7 v-2 a2 2 0 0 1 2 -2 z" fill="currentColor"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="32" height="32"><rect x="2" y="11" width="20" height="7" rx="1.5" fill="currentColor"/><rect x="2" y="7" width="6" height="5" rx="1.5" fill="currentColor"/><rect x="1" y="18" width="2" height="3" fill="currentColor"/><rect x="21" y="18" width="2" height="3" fill="currentColor"/></svg>
+              <span class="bed-icon" :class="{ 'mirror-icon': call.mirror }" v-html="locationIconSvg(call.locationType)">
               </span>
-              <span class="call-text">{{ call.name }}</span>
+              <span class="call-text"><span class="call-base">{{ call.name }}</span><template v-if="call.patientName"><span class="patient-gap" aria-hidden="true">&nbsp;&nbsp;&nbsp;</span><span class="patient-icon" title="Paciente asignado" v-html="accountSvg"></span><span class="patient-name">{{ call.patientName }}</span></template></span>
             </div>
             <div class="call-col llam">{{ call.cons || 1 }}</div>
             <div class="call-col tiempo" :class="{ 'emergency-time': call.isEmergency }">{{ formatCallTime(call) }}</div>
@@ -102,7 +108,7 @@
     </div>
 
     <div class="footer">
-      <div>
+      <div class="location-info">
         {{ settings.name || 'Sede sin nombre' }}
         <span v-if="allCalls.length > MAX_VISIBLE_CALLS"> — Mostrando {{ visibleCalls.length }} de {{ allCalls.length }}</span>
       </div>
@@ -129,7 +135,7 @@ createApp({
     const calls = ref([]); // ActiveCallState[] tal cual llega del servidor
     const devices = ref([]);
     const settings = ref({
-      name: '', backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      name: '', pendingReminderEnabled: false, pendingReminderIntervalS: 120, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
       normalCallColor: '#0ea5e9', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
       soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
       voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
@@ -174,9 +180,27 @@ createApp({
       return d?.callerLocationType || 'cama';
     };
 
+    // Mismos iconos que el server web de referencia (Iconify, vendorizados sin CDN):
+    // cama = mdi:bed, sillon = material-symbols:airline-seat-recline-extra,
+    // bano = healthicons:letrina-alt (espejado como en la referencia).
+    const LOCATION_ICONS = {
+      cama: { viewBox: '0 0 24 24', body: '<path fill="currentColor" d="M19 7h-8v7H3V5H1v15h2v-3h18v3h2v-9a4 4 0 0 0-4-4M7 13a3 3 0 0 0 3-3a3 3 0 0 0-3-3a3 3 0 0 0-3 3a3 3 0 0 0 3 3"/>' },
+      sillon: { viewBox: '0 0 24 24', body: '<path fill="currentColor" d="M8.5 6q-.825 0-1.412-.587T6.5 4t.588-1.412T8.5 2t1.413.588T10.5 4t-.587 1.413T8.5 6M14 20H7.55q-.825 0-1.512-.587T5.175 18L3 7h2.05l2.2 11H14zm5.5 2l-2.9-5H9.65q-.725 0-1.263-.437T7.7 15.4l-1.1-5.35q-.275-1.2.563-2.125T9.2 7q.875 0 1.588.525T11.7 8.95L12.8 14h3.25q.525 0 .975.275t.725.725l3.5 6z"/>' },
+      bano: { viewBox: '0 0 48 48', body: '<g fill="currentColor"><path d="M6 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2H6zm6 20v-3H6V12h12v11h24c0 8.43-5.703 13.35-13 13.94V37h-5.5v2H29v3H14.5V30c-.747 0-2.5-.5-2.5-2"/><path d="M20 20a1 1 0 0 1 1-1h20a1 1 0 1 1 0 2H21a1 1 0 0 1-1-1"/></g>' },
+    };
+    const locationIconSvg = (locationType) => {
+      const icon = LOCATION_ICONS[locationType] || LOCATION_ICONS.cama;
+      return `<svg viewBox="${icon.viewBox}" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${icon.body}</svg>`;
+    };
+
+    // Icono de paciente igual que la referencia (mdi:account).
+    const accountSvg = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M12 4a4 4 0 0 1 4 4a4 4 0 0 1-4 4a4 4 0 0 1-4-4a4 4 0 0 1 4-4m0 10c4.42 0 8 1.79 8 4v2H4v-2c0-2.21 3.58-4 8-4"/></svg>`;
+
+    const SPECIAL_CALL_TYPES = ['type3', 'type4', 'type5', 'type6'];
+
     const allCalls = computed(() => {
       return [...calls.value]
-        .filter(c => c.active)
+        .filter(c => c.active && !SPECIAL_CALL_TYPES.includes(c.call_type))
         .map(c => {
           const locationType = getDeviceLocationType(c.deviceId);
           return {
@@ -259,9 +283,11 @@ createApp({
 
     const processSpeechQueue = () => {
       if (isSpeaking.value || speechQueue.value.length === 0) return;
-      const { callerName, isEmergency } = speechQueue.value.shift();
+      const { callerName, isEmergency, pendingReminder } = speechQueue.value.shift();
       try {
-        const message = isEmergency ? `Llamado de emergencia desde ${callerName}` : `Llamado desde ${callerName}`;
+        const message = pendingReminder
+          ? 'hay llamados pendientes por finalizar'
+          : (isEmergency ? `Llamado de emergencia desde ${callerName}` : `Llamado desde ${callerName}`);
         const utterance = new SpeechSynthesisUtterance(message);
         utterance.lang = 'es-MX';
         utterance.rate = settings.value.voiceRate || 1.0;
@@ -290,7 +316,33 @@ createApp({
       processSpeechQueue();
     };
 
-    const triggerAlert = (deviceId, isEmergency) => {
+    // Recordatorio de pendientes: mientras haya llamados sin finalizar,
+    // avisa cada intervalo configurable (voz o sonido según configuración).
+    const lastPendingReminderAt = ref(0);
+    const checkPendingReminder = () => {
+      const active = allCalls.value.length;
+      if (!settings.value.pendingReminderEnabled || active === 0) {
+        lastPendingReminderAt.value = 0;
+        return;
+      }
+      const intervalMs = (Number(settings.value.pendingReminderIntervalS) || 120) * 1000;
+      const now = Date.now();
+      if (!lastPendingReminderAt.value) { lastPendingReminderAt.value = now; return; }
+      if (now - lastPendingReminderAt.value < intervalMs) return;
+      lastPendingReminderAt.value = now;
+      const hasEmergency = allCalls.value.some(c => c.isEmergency);
+      if (settings.value.voiceEnabled && ('speechSynthesis' in window)) {
+        speechQueue.value.push({ pendingReminder: true });
+        processSpeechQueue();
+      } else {
+        playAlertSound(hasEmergency);
+      }
+    };
+
+    const triggerAlert = (deviceId, isEmergency, callType) => {
+      // Guarda dura: ningún llamado especial (type3..type6) puede generar
+      // sonido ni anuncio de voz en esta pantalla, sin importar la ruta.
+      if (SPECIAL_CALL_TYPES.includes(callType)) return;
       newCallIds.value = [...newCallIds.value, deviceId];
       setTimeout(() => { newCallIds.value = newCallIds.value.filter(id => id !== deviceId); }, 5000);
       if (settings.value.voiceEnabled) {
@@ -302,34 +354,49 @@ createApp({
 
     // ── Datos en vivo ──
     const applySnapshot = (nextCalls) => {
+      // La pantalla de sala solo muestra normal/emergencia: los especiales
+      // (type3..type6) viven en su pestaña y no deben disparar alertas ni
+      // contaminar el contador de consecutivo del llamador.
+      const relevant = nextCalls.filter(c => !SPECIAL_CALL_TYPES.includes(c.call_type));
       if (hasLoadedInitialSnapshot) {
-        for (const call of nextCalls) {
+        for (const call of relevant) {
           if (!call.active) continue;
           const prevCons = knownCons.get(call.deviceId);
           if (prevCons === undefined) {
-            triggerAlert(call.deviceId, call.call_type === 'emergency');
+            triggerAlert(call.deviceId, call.call_type === 'emergency', call.call_type);
           } else if (call.cons > prevCons) {
-            triggerAlert(call.deviceId, call.call_type === 'emergency');
+            triggerAlert(call.deviceId, call.call_type === 'emergency', call.call_type);
           }
         }
       }
       knownCons.clear();
-      for (const call of nextCalls) if (call.active) knownCons.set(call.deviceId, call.cons);
-      calls.value = nextCalls;
+      for (const call of relevant) if (call.active) knownCons.set(call.deviceId, call.cons);
+      calls.value = relevant;
       hasLoadedInitialSnapshot = true;
     };
 
     const applyCallState = (state) => {
+      // Un mismo llamador puede tener varios especiales: su cierre solo debe
+      // retirar la fila (dispositivo, tipo) sin tocar la llamada normal.
+      const idx = calls.value.findIndex(
+        c => c.deviceId === state.deviceId && c.call_type === state.call_type
+      );
+      if (SPECIAL_CALL_TYPES.includes(state.call_type)) {
+        if (state.active) {
+          if (idx >= 0) calls.value[idx] = state; else calls.value.push(state);
+        } else if (idx >= 0) {
+          calls.value.splice(idx, 1);
+        }
+        return;
+      }
       if (state.active) {
         const prevCons = knownCons.get(state.deviceId);
-        const idx = calls.value.findIndex(c => c.deviceId === state.deviceId);
         if (idx >= 0) calls.value[idx] = state; else calls.value.push(state);
         if (hasLoadedInitialSnapshot && (prevCons === undefined || state.cons > prevCons)) {
-          triggerAlert(state.deviceId, state.call_type === 'emergency');
+          triggerAlert(state.deviceId, state.call_type === 'emergency', state.call_type);
         }
         knownCons.set(state.deviceId, state.cons);
       } else {
-        const idx = calls.value.findIndex(c => c.deviceId === state.deviceId);
         if (idx >= 0) calls.value.splice(idx, 1);
         knownCons.delete(state.deviceId);
       }
@@ -370,6 +437,7 @@ createApp({
           if (!call.active) continue;
           callTimers[call.deviceId] = msToClock(Date.now() - call.startedAtMs);
         }
+        checkPendingReminder();
       }, 1000);
       rotationTimer = setInterval(() => {
         if (allCalls.value.length > MAX_VISIBLE_CALLS) {
@@ -387,7 +455,7 @@ createApp({
 
     return {
       MAX_VISIBLE_CALLS, allCalls, visibleCalls, settings, cssVariables, newCallIds,
-      formattedCurrentTime, formatCallTime,
+      formattedCurrentTime, formatCallTime, locationIconSvg, accountSvg,
       alertSound, alertSoundBackup1, alertSoundBackup2,
       emergencySound, emergencySoundBackup1, emergencySoundBackup2,
     };

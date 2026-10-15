@@ -22,30 +22,38 @@ export class MemoryStore {
         this.lastSeq.set(deviceId, seq);
     }
     // ── Devices ──────────────────────────────────────────────────────────────
-    registerDevice(deviceId, mac) {
+    registerDevice(deviceId, mac, initialName, transport, firmwareVersion) {
         const now = Date.now();
         const existing = this.devices.get(deviceId);
+        const existingName = existing?.name?.trim();
+        const hasGeneratedName = !existingName || /^Dispositivo(?: [0-9A-F]{4})?$/i.test(existingName);
         const record = {
             deviceId,
             mac: mac || existing?.mac || "",
+            name: initialName && hasGeneratedName ? initialName : existing?.name ?? initialName,
             online: true,
             lastSeenMs: now,
             registeredAtMs: existing?.registeredAtMs ?? now,
             callerLocationType: existing?.callerLocationType ?? "cama",
+            transport: transport ?? existing?.transport,
+            firmwareVersion: firmwareVersion || existing?.firmwareVersion,
         };
         this.devices.set(deviceId, record);
         return record;
     }
-    touchDevice(deviceId, mac) {
+    touchDevice(deviceId, mac, transport, firmwareVersion) {
         const existing = this.devices.get(deviceId);
         const now = Date.now();
         const record = {
             deviceId,
             mac: mac || existing?.mac || "",
+            name: existing?.name,
             online: true,
             lastSeenMs: now,
             registeredAtMs: existing?.registeredAtMs ?? now,
             callerLocationType: existing?.callerLocationType ?? "cama",
+            transport: transport ?? existing?.transport,
+            firmwareVersion: firmwareVersion || existing?.firmwareVersion,
         };
         this.devices.set(deviceId, record);
         return record;

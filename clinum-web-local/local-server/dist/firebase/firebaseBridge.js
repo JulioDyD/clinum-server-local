@@ -1,5 +1,6 @@
 import admin from "firebase-admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { isSpecialCallType } from "../types.js";
 export class FirebaseBridge {
     projectId;
     db = null;
@@ -50,7 +51,13 @@ export class FirebaseBridge {
             data.startedAt = FieldValue.serverTimestamp();
         else
             data.endedAt = FieldValue.serverTimestamp();
-        await this.firestore.collection("called").doc(state.deviceId).set(data, { merge: true });
+        // Un llamador puede tener varios especiales concurrentes: cada tipo vive en
+        // su propio documento para no pisarse. Normal/emergencia siguen en el doc
+        // del dispositivo (uno solo a la vez).
+        const docId = isSpecialCallType(state.call_type)
+            ? `${state.deviceId}_${state.call_type}`
+            : state.deviceId;
+        await this.firestore.collection("called").doc(docId).set(data, { merge: true });
     }
     // ── Historial de llamados ─────────────────────────────────────────────────
     /** Guarda el llamado finalizado en care_history/{id} */
@@ -64,6 +71,8 @@ export class FirebaseBridge {
             startedAtMs: record.startedAtMs,
             endedAtMs: record.endedAtMs,
             durationMs: record.durationMs,
+            ...(record.patientName ? { patientName: record.patientName } : {}),
+            ...(record.finishOrigin ? { finishOrigin: record.finishOrigin } : {}),
             createdAt: FieldValue.serverTimestamp(),
         });
     }

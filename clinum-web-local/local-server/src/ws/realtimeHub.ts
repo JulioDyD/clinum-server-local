@@ -1,7 +1,7 @@
 import { Server as SocketIOServer } from "socket.io";
 import type { Socket } from "socket.io";
 import type { Server as HttpServer } from "http";
-import type { ActiveCallState, CallHistoryRecord, DeviceRecord, LampRecord, LocationSettings } from "../types.js";
+import type { ActiveCallState, CallHistoryRecord, DeviceRecord, LampRecord, LocationSettings, PatientRecord } from "../types.js";
 import { config } from "../config.js";
 
 function parseOrigins(value: string): string | string[] {
@@ -57,5 +57,9 @@ export class RealtimeHub {
 
   public publishLocationSettings(settings: LocationSettings): void {
     this.io.emit("location_settings", settings);
+  }
+
+  public publishPatientList(patients: PatientRecord[]): void {
+    this.io.emit("patient_list", patients);
   }
 }

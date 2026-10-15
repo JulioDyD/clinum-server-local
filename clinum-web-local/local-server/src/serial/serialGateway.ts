@@ -1,9 +1,10 @@
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
-import type { AckFrame, ConfigUpdateFrame, IncomingFrame, LampStateFrame, LampTestFrame, TimeSyncFrame } from "../types.js";
+import type { AckFrame, ConfigUpdateFrame, GatewayControlFrame, GatewaySiteConfig, IncomingFrame, LampSessionAckFrame, LampStateFrame, LampTestFrame, TimeSyncFrame, PatientUpdateFrame } from "../types.js";
 
 type Callbacks = {
   onFrame: (frame: IncomingFrame) => void;
+  onGatewayControl: (frame: GatewayControlFrame) => void;
   onInvalidFrame: (raw: string) => void;
 };
 
@@ -11,11 +12,15 @@ export class SerialGateway {
   private readonly port: SerialPort;
   private readonly parser: ReadlineParser;
   private readonly disabled: boolean;
+  private reconnecting = false;
+  private listening = false;
 
   public constructor(path: string, baudRate: number, private readonly callbacks: Callbacks) {
     this.disabled = path.trim().length === 0 || path.toLowerCase() === "none";
     this.port = new SerialPort({ path, baudRate, autoOpen: false });
     this.parser = this.port.pipe(new ReadlineParser({ delimiter: "\n" }));
+    this.port.on("error", (error) => console.error("[SERIAL]", error.message));
+    this.port.on("close", () => this.scheduleReconnect());
   }
 
   public open(): Promise<void> {
@@ -23,14 +28,16 @@ export class SerialGateway {
       return Promise.resolve();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this.port.open((err) => {
         if (err) {
-          reject(err);
+          console.error("[SERIAL] Initial connection unavailable:", err.message);
+          this.scheduleReconnect();
+          resolve();
           return;
         }
 
-        this.parser.on("data", (line) => {
+        if (!this.listening) this.parser.on("data", (line) => {
           const raw = String(line).trim();
           if (!raw) return;
 
@@ -45,46 +52,94 @@ export class SerialGateway {
           }
 
           try {
-            const frame = JSON.parse(jsonStr) as IncomingFrame;
+            const frame = JSON.parse(jsonStr) as IncomingFrame | GatewayControlFrame;
             console.log(`[SERIAL RX] ${jsonStr}`);
-            this.callbacks.onFrame(frame);
+            if (frame.msgType.startsWith("gateway_")) this.callbacks.onGatewayControl(frame as GatewayControlFrame);
+            else this.callbacks.onFrame(frame as IncomingFrame);
           } catch {
             this.callbacks.onInvalidFrame(raw);
           }
         });
+        this.listening = true;
 
         resolve();
       });
     });
   }
 
+  public isAvailable(): boolean {
+    return !this.disabled && this.port.isOpen;
+  }
+
+  private writeFrame(frame: Record<string, unknown>): void {
+    this.port.write(`${JSON.stringify({ server: "local", ...frame })}\n`);
+  }
+
   public sendAck(ack: AckFrame): void {
-    if (this.disabled) return;
+    if (!this.isAvailable()) return;
     console.log(`[SERIAL TX] ${JSON.stringify(ack)}`);
-    this.port.write(`${JSON.stringify(ack)}\n`);
+    this.writeFrame({ ...ack });
+  }
+
+  public sendLampSessionAck(ack: LampSessionAckFrame): void {
+    if (!this.isAvailable()) return;
+    console.log(`[SERIAL TX] ${JSON.stringify(ack)}`);
+    this.writeFrame({ ...ack });
   }
 
   public sendConfig(frame: ConfigUpdateFrame): void {
-    if (this.disabled) return;
+    if (!this.isAvailable()) return;
     console.log(`[SERIAL TX] ${JSON.stringify(frame)}`);
-    this.port.write(`${JSON.stringify(frame)}\n`);
+    this.writeFrame({ ...frame });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.disabled || this.reconnecting) return;
+    this.reconnecting = true;
+    setTimeout(() => {
+      this.reconnecting = false;
+      if (this.port.isOpen) return;
+      void this.open().then(() => {
+        if (this.isAvailable()) { this.requestGatewayStatus(); this.sendTimeSync(); }
+      });
+    }, 2000).unref();
+  }
+
+  public sendPatient(frame: PatientUpdateFrame): boolean {
+    if (!this.isAvailable()) return false;
+    this.writeFrame({ ...frame });
+    return true;
   }
 
   public sendTimeSync(): void {
-    if (this.disabled) return;
+    if (!this.isAvailable()) return;
     const frame: TimeSyncFrame = { msgType: "time_sync", epochS: Math.floor(Date.now() / 1000) };
-    this.port.write(`${JSON.stringify(frame)}\n`);
+    this.writeFrame({ ...frame });
   }
 
   public sendLampState(frame: LampStateFrame): void {
-    if (this.disabled) return;
+    if (!this.isAvailable()) return;
     console.log(`[SERIAL TX] ${JSON.stringify(frame)}`);
-    this.port.write(`${JSON.stringify(frame)}\n`);
+    this.writeFrame({ ...frame });
   }
 
   public sendLampTest(frame: LampTestFrame): void {
-    if (this.disabled) return;
+    if (!this.isAvailable()) return;
     console.log(`[SERIAL TX] ${JSON.stringify(frame)}`);
-    this.port.write(`${JSON.stringify(frame)}\n`);
+    this.writeFrame({ ...frame });
+  }
+
+  public sendGatewayConfig(config: GatewaySiteConfig): boolean {
+    if (!this.isAvailable()) return false;
+    const frame = { msgType: "gateway_config", config } as const;
+    console.log(`[SERIAL TX] ${JSON.stringify(frame)}`);
+    this.writeFrame({ ...frame });
+    return true;
+  }
+
+  public requestGatewayStatus(): boolean {
+    if (!this.isAvailable()) return false;
+    this.writeFrame({ msgType: "gateway_status_request" });
+    return true;
   }
 }
