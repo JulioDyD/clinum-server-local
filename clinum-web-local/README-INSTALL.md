@@ -25,8 +25,11 @@ git push origin main --tags
 ```bash
 git clone --depth 1 https://github.com/JulioDyD/clinum-server-local.git
 sudo bash clinum-server-local/clinum-web-local/local-server/packaging/site-install.sh \
-  --ref vX.Y.Z --serial auto --http-port 8081 --yes
+  --ref vX.Y.Z --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
+
+El panel queda en `https://<ip-sede>:8081` (HTTPS con CA interna, ver abajo).
+El puerto `http://<ip-sede>:8080` solo redirige a HTTPS.
 
 ## Actualizar sede existente (preserva .env y base de datos)
 
@@ -48,8 +51,30 @@ Lo que preserva el update: `/etc/clinum-web-local/.env` y
 systemctl status clinum-web-local
 journalctl -u clinum-web-local -f
 systemctl restart clinum-web-local
-curl http://localhost:8081/health
+curl -k https://localhost:8081/health
 ```
+
+## HTTPS y certificado (CA interna de la sede)
+
+Cada sede genera su propia CA en la instalacion (`/etc/clinum-web-local/tls/`).
+El panel se sirve por HTTPS en el puerto 8081. Para que los navegadores no
+muestren advertencia, instala `ca.crt` **una vez** en cada PC cliente:
+
+1. Copia el archivo desde la sede (USB o red):
+   `/etc/clinum-web-local/tls/ca.crt`
+2. Windows: doble clic en `ca.crt` -> Instalar certificado -> "Entidades de
+   certificacion raiz de confianza".
+3. Linux Mint: copialo a `/usr/local/share/ca-certificates/clinum-sede.crt`
+   y ejecuta `sudo update-ca-certificates`.
+4. Abre `https://<ip-sede>:8081` (usa el nombre o IP incluido al instalar).
+
+Notas:
+
+- Fija IP estatica (o reserva DHCP) al servidor de la sede. Si su IP cambia,
+  reemite el certificado sin tocar los clientes:
+  `sudo bash packaging/site-tls.sh renew-server && sudo systemctl restart clinum-web-local`.
+- Ver estado: `sudo bash packaging/site-tls.sh status`.
+- El update preserva `/etc/clinum-web-local/tls/` y lo incluye en el backup.
 
 ## Configuracion
 
@@ -60,7 +85,7 @@ sudo nano /etc/clinum-web-local/.env
 sudo systemctl restart clinum-web-local
 ```
 
-Puerto serial: se autodetecta (`/dev/ttyUSB0`, `/dev/ttyACM0`, ...). Para fijarlo:
+Puerto serial: por defecto `/dev/ttyACM0`. Para cambiarlo:
 
 ```bash
 SERIAL_PORT=/dev/ttyUSB1

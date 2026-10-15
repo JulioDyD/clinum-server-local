@@ -81,6 +81,11 @@ dpkg -i "$DEB" || { apt-get -f install -y && dpkg -i "$DEB"; }
 [ -f "$ENVFILE" ] || die "postinst did not create $ENVFILE"
 sed -i -E "s|^SERIAL_PORT=.*|SERIAL_PORT=$SERIAL_PORT|" "$ENVFILE"
 sed -i -E "s|^LOCAL_HTTP_PORT=.*|LOCAL_HTTP_PORT=$HTTP_PORT|" "$ENVFILE"
+ensure_tls_env
+chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
+
+# HTTPS with site-internal CA (method B). Idempotent: keeps CA, issues server cert.
+bash "$APP_DIR/packaging/site-tls.sh" issue
 chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
 
 systemctl daemon-reload

@@ -92,6 +92,12 @@ dpkg -i "$DEB" || { apt-get -f install -y && dpkg -i "$DEB"; }
 
 # dpkg respects conffiles: /etc/clinum-web-local/.env is NOT overwritten.
 log ".env preserved: $ENVFILE"
+ensure_tls_env
+chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
+
+# HTTPS with site-internal CA (method B). Keeps existing CA (no client reinstall),
+# issues the server cert on first TLS upgrade.
+bash "$APP_DIR/packaging/site-tls.sh" issue
 
 systemctl daemon-reload
 systemctl restart "$SERVICE_NAME"

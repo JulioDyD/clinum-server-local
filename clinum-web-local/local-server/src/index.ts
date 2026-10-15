@@ -1,6 +1,7 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { config } from "./config.js";
@@ -13,7 +14,22 @@ import { FirebaseBridge } from "./firebase/firebaseBridge.js";
 
 const firebaseEnabled = FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly);
 
-const app = Fastify({ logger: true });
+// HTTPS with site CA when TLS_ENABLED=1 and key/cert exist.
+// Otherwise plain HTTP (dev or pre-TLS sites).
+function loadTls(): { key: Buffer; cert: Buffer } | undefined {
+  if (!config.tls.enabled) return undefined;
+  if (!existsSync(config.tls.keyFile) || !existsSync(config.tls.certFile)) {
+    console.warn(`[TLS] disabled: missing key/cert (${config.tls.keyFile}, ${config.tls.certFile})`);
+    return undefined;
+  }
+  return { key: readFileSync(config.tls.keyFile), cert: readFileSync(config.tls.certFile) };
+}
+
+const tlsOptions = loadTls();
+const tlsActive = Boolean(tlsOptions);
+// Typed as the plain HTTP instance: at runtime it may wrap an HTTPS server,
+// whose API surface used here (routes, listen, server handle) is identical.
+const app = (tlsOptions ? Fastify({ logger: true, https: tlsOptions }) : Fastify({ logger: true })) as unknown as FastifyInstance;
 const store = new SqliteStore(config.localDbFile);
 const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly);
 
@@ -676,6 +692,7 @@ app.get("/health", async () => ({
   ok: true,
   ts: Date.now(),
   firebaseEnabled,
+  tls: tlsActive,
   serialPort: config.serialPort,
   version: systemVersion.version,
   commit: systemVersion.commit,
@@ -1073,8 +1090,22 @@ async function bootstrap(): Promise<void> {
 
   await app.listen({ port: config.localHttpPort, host: "0.0.0.0" });
 
+  // Plain-HTTP helper that redirects browsers to HTTPS (same port logic as before).
+  if (tlsActive && Number.isInteger(config.tls.redirectPort) && config.tls.redirectPort > 0 &&
+      config.tls.redirectPort !== config.localHttpPort) {
+    const redirectPort = config.tls.redirectPort;
+    const httpsPort = config.localHttpPort;
+    const redirect = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const host = (req.headers.host ?? "localhost").split(":")[0];
+      res.writeHead(301, { Location: `https://${host}:${httpsPort}${req.url ?? "/"}` });
+      res.end();
+    });
+    redirect.on("error", (err: Error) => app.log.warn({ err }, "HTTP->HTTPS redirect failed; HTTPS still works"));
+    redirect.listen(redirectPort, "0.0.0.0");
+  }
+
   app.log.info(
-    { firebaseEnabled, serialPort: config.serialPort, localDbFile: config.localDbFile },
+    { firebaseEnabled, tls: tlsActive, serialPort: config.serialPort, localDbFile: config.localDbFile },
     `Local bridge running on :${config.localHttpPort}`,
   );
 

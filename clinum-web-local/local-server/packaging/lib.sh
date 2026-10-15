@@ -134,6 +134,8 @@ backup_site() {
   dest="$BACKUP_DIR/backup-$ts"
   mkdir -p "$dest"
   [ -f "$ENVFILE" ] && cp -a "$ENVFILE" "$dest/.env"
+  # TLS private keys/certs live in /etc (never in the .deb): back them up too.
+  if [ -d "$ETCDIR/tls" ]; then cp -a "$ETCDIR/tls" "$dest/tls" 2>/dev/null || true; fi
   if [ -d "$VARDIR" ]; then cp -a "$VARDIR" "$dest/var-lib" 2>/dev/null || true; fi
   installed_version > "$dest/VERSION" 2>/dev/null || echo "none" > "$dest/VERSION"
   # Rotation: keep last 10
@@ -141,11 +143,25 @@ backup_site() {
   echo "$dest"
 }
 
+site_scheme() {
+  if [ -f "$ENVFILE" ] && grep -qE '^TLS_ENABLED=1' "$ENVFILE" 2>/dev/null; then echo "https"; else echo "http"; fi
+}
+
+# Adds missing TLS_* keys to a preserved .env (upgrades from pre-TLS installs).
+ensure_tls_env() {
+  grep -qE '^TLS_ENABLED=' "$ENVFILE" || echo "TLS_ENABLED=1" >> "$ENVFILE"
+  grep -qE '^TLS_CERT_FILE=' "$ENVFILE" || echo "TLS_CERT_FILE=/etc/clinum-web-local/tls/server.crt" >> "$ENVFILE"
+  grep -qE '^TLS_KEY_FILE=' "$ENVFILE" || echo "TLS_KEY_FILE=/etc/clinum-web-local/tls/server.key" >> "$ENVFILE"
+  grep -qE '^TLS_REDIRECT_PORT=' "$ENVFILE" || echo "TLS_REDIRECT_PORT=8080" >> "$ENVFILE"
+}
+
 health_check() {
-  local port="${1:-8081}" i
+  local port="${1:-8081}" i scheme insecure=""
+  scheme="$(site_scheme)"
+  [ "$scheme" = "https" ] && insecure="-k"
   for i in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
-      log "Health OK on :$port (/health)"
+    if curl -fsS $insecure "${scheme}://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      log "Health OK on $scheme :$port (/health)"
       return 0
     fi
     sleep 2
@@ -155,11 +171,13 @@ health_check() {
 }
 
 print_site_info() {
-  local port="${1:-8081}"
+  local port="${1:-8081}" scheme
+  scheme="$(site_scheme)"
   echo ""
   echo "----------------------------------------"
   echo "Installed version: v$(installed_version)"
-  echo "Health: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$port/health"
+  echo "Panel: ${scheme}://$(hostname -I 2>/dev/null | awk '{print $1}'):$port/"
+  echo "Health: ${scheme}://$(hostname -I 2>/dev/null | awk '{print $1}'):$port/health"
   echo "Logs: journalctl -u $SERVICE_NAME -f"
   echo "Config: $ENVFILE"
   echo "----------------------------------------"
