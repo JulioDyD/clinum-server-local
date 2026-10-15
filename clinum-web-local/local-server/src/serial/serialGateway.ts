@@ -49,6 +49,10 @@ export class SerialGateway {
           } else if (raw.startsWith("DEBUG")) {
             console.log(`[GATEWAY] ${raw}`);
             return;
+          } else if (/^\[[A-Z]+\]/.test(raw)) {
+            // Firmware console noise (ej: "[THERMAL] CPU=... Temp=..."):
+            // no es un frame del protocolo, se ignora en silencio.
+            return;
           }
 
           try {
