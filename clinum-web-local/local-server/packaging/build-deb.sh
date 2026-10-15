@@ -86,23 +86,33 @@ cp -r "$APP_DIR/dist"         "$OPT/dist"
 cp -r "$APP_DIR/node_modules" "$OPT/node_modules"
 cp -r "$APP_DIR/public"       "$OPT/public"
 
-# 4. Control con la arquitectura correcta
-sed -i "s/__ARCH__/$DEB_ARCH/" "$DEBIAN/control"
+# 4. Control con la arquitectura correcta (sin mutar el template en git:
+#    se construye sobre una copia temporal del arbol).
+STAGE="$(mktemp -d)"
+cp -a "$ROOT" "$STAGE/root"
+sed -i "s/__ARCH__/$DEB_ARCH/" "$STAGE/root/DEBIAN/control"
+grep -q "^Version:" "$STAGE/root/DEBIAN/control" || true
 
-# 5. Permisos
-chmod 0755 "$DEBIAN/postinst" "$DEBIAN/prerm" "$DEBIAN/postrm" "$OPT/run.sh"
-chmod 0644 "$DEBIAN/control" "$DEBIAN/conffiles"
+# 5. Permisos (sobre la copia de staging)
+SROOT="$STAGE/root"
+SDEBIAN="$SROOT/DEBIAN"
+SOPT="$SROOT/opt/$PKG_NAME"
+chmod 0755 "$SDEBIAN/postinst" "$SDEBIAN/prerm" "$SDEBIAN/postrm" "$SOPT/run.sh"
+chmod 0644 "$SDEBIAN/control" "$SDEBIAN/conffiles"
 
 # 5b. Permisos de directorios (dpkg-deb exige 0755..0775 en DEBIAN y el arbol)
-find "$ROOT" -type d -exec chmod 0755 {} +
-chmod 0644 "$DEBIAN/control" "$DEBIAN/conffiles"
-chmod 0755 "$DEBIAN/postinst" "$DEBIAN/prerm" "$DEBIAN/postrm" "$OPT/run.sh"
+find "$SROOT" -type d -exec chmod 0755 {} +
+chmod 0644 "$SDEBIAN/control" "$SDEBIAN/conffiles"
+chmod 0755 "$SDEBIAN/postinst" "$SDEBIAN/prerm" "$SDEBIAN/postrm" "$SOPT/run.sh"
+chmod -R go+rX "$SOPT"
 
-# 6. Construir el .deb
+# 6. Construir el .deb (Version = package.json, sin tocar el template)
 mkdir -p "$OUTDIR"
 VERSION="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo 0.1.0)"
+sed -i -E "s/^Version: .*/Version: $VERSION/" "$SDEBIAN/control"
 DEB="$OUTDIR/${PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
 rm -f "$DEB"
-dpkg-deb --build --root-owner-group "$ROOT" "$DEB"
+dpkg-deb --build --root-owner-group "$SROOT" "$DEB"
+rm -rf "$STAGE"
 echo "==> Generado: $DEB"
-echo "==> Ahora ejecuta: sudo ./install.sh"
+echo "==> Sede nueva: sudo ./site-install.sh --local | Actualizar: sudo ./site-update.sh --local"

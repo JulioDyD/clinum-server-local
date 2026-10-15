@@ -23,6 +23,11 @@ build/
 *.elf
 *.map
 
+# ── Metadata de build del server local (se regenera en cada build) ─
+clinum-web-local/local-server/dist/version.json
+clinum-web-local/local-server/dist-deb/
+*.deb
+
 # ── IDE / OS ───────────────────────────────────────────────────────
 .theia/
 .vscode/
