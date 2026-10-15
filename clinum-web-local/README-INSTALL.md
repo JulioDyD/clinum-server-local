@@ -28,8 +28,9 @@ sudo bash clinum-server-local/clinum-web-local/local-server/packaging/site-insta
   --ref vX.Y.Z --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
 
-El panel queda en `https://<ip-sede>:8081` (HTTPS con CA interna, ver abajo).
-El puerto `http://<ip-sede>:8080` solo redirige a HTTPS.
+El panel queda en `http://<ip-sede>:8081` (HTTP local). Con `--https` queda en
+`https://<ip-sede>:8081` con CA interna (ver abajo); el puerto
+`http://<ip-sede>:8080` solo redirige a HTTPS.
 
 ## Actualizar sede existente (preserva .env y base de datos)
 
@@ -54,7 +55,23 @@ systemctl restart clinum-web-local
 curl -k https://localhost:8081/health
 ```
 
-## HTTPS y certificado (CA interna de la sede)
+## HTTPS opcional (CA interna de la sede)
+
+Por defecto todo trabaja por HTTP local. Si quieres HTTPS, instala con
+`--https` (sede nueva) o activa en una sede existente:
+
+```bash
+sudo sed -i -E 's/^TLS_ENABLED=.*/TLS_ENABLED=1/' /etc/clinum-web-local/.env
+sudo bash packaging/site-tls.sh issue
+sudo systemctl restart clinum-web-local
+```
+
+Para volver a HTTP:
+
+```bash
+sudo sed -i -E 's/^TLS_ENABLED=.*/TLS_ENABLED=0/' /etc/clinum-web-local/.env
+sudo systemctl restart clinum-web-local
+```
 
 Cada sede genera su propia CA en la instalacion (`/etc/clinum-web-local/tls/`).
 El panel se sirve por HTTPS en el puerto 8081. Para que los navegadores no

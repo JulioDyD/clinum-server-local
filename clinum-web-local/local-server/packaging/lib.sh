@@ -154,8 +154,9 @@ site_scheme() {
 }
 
 # Adds missing TLS_* keys to a preserved .env (upgrades from pre-TLS installs).
+# Default is plain HTTP (TLS_ENABLED=0); HTTPS is opt-in via --https.
 ensure_tls_env() {
-  grep -qE '^TLS_ENABLED=' "$ENVFILE" || echo "TLS_ENABLED=1" >> "$ENVFILE"
+  grep -qE '^TLS_ENABLED=' "$ENVFILE" || echo "TLS_ENABLED=0" >> "$ENVFILE"
   grep -qE '^TLS_CERT_FILE=' "$ENVFILE" || echo "TLS_CERT_FILE=/etc/clinum-web-local/tls/server.crt" >> "$ENVFILE"
   grep -qE '^TLS_KEY_FILE=' "$ENVFILE" || echo "TLS_KEY_FILE=/etc/clinum-web-local/tls/server.key" >> "$ENVFILE"
   grep -qE '^TLS_REDIRECT_PORT=' "$ENVFILE" || echo "TLS_REDIRECT_PORT=8080" >> "$ENVFILE"

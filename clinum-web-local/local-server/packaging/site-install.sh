@@ -4,8 +4,9 @@
 # is installed from there. Never copy by hand from Windows.
 # Usage:
 #   sudo bash site-install.sh [--repo URL] [--ref main|v1.2.3]
-#       [--serial /dev/ttyACM0] [--http-port 8081] [--workdir /tmp] [--yes]
-#   Default serial is /dev/ttyACM0. Override only with --serial <path>.
+#       [--serial /dev/ttyACM0] [--http-port 8081] [--https] [--workdir /tmp] [--yes]
+#   Default serial is /dev/ttyACM0. Plain HTTP by default; --https enables
+#   HTTPS with the site-internal CA (clients must install ca.crt once).
 #   sudo bash site-install.sh --local [--serial /dev/ttyACM0] [--http-port 8081] [--yes]
 #     --local: no clone; uses current checkout (dev only).
 set -euo pipefail
@@ -14,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; SERIAL_PREFER="$DEFAULT_SERIAL_PORT"
-HTTP_PORT="$DEFAULT_HTTP_PORT"; WORKDIR="/tmp"; ASSUME_YES=0; LOCAL_MODE=0
+HTTP_PORT="$DEFAULT_HTTP_PORT"; WORKDIR="/tmp"; ASSUME_YES=0; LOCAL_MODE=0; USE_HTTPS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -22,6 +23,7 @@ while [ $# -gt 0 ]; do
     --ref) REF="${2:?}"; shift 2 ;;
     --serial) SERIAL_PREFER="${2:?}"; shift 2 ;;
     --http-port) HTTP_PORT="${2:?}"; shift 2 ;;
+    --https) USE_HTTPS=1; shift ;;
     --workdir) WORKDIR="${2:?}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --local) LOCAL_MODE=1; shift ;;
@@ -82,10 +84,13 @@ dpkg -i "$DEB" || { apt-get -f install -y && dpkg -i "$DEB"; }
 sed -i -E "s|^SERIAL_PORT=.*|SERIAL_PORT=$SERIAL_PORT|" "$ENVFILE"
 sed -i -E "s|^LOCAL_HTTP_PORT=.*|LOCAL_HTTP_PORT=$HTTP_PORT|" "$ENVFILE"
 ensure_tls_env
-chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
-
-# HTTPS with site-internal CA (method B). Idempotent: keeps CA, issues server cert.
-bash "$APP_DIR/packaging/site-tls.sh" issue
+if [ "$USE_HTTPS" -eq 1 ]; then
+  # HTTPS with site-internal CA. Idempotent: keeps CA, issues server cert.
+  sed -i -E "s|^TLS_ENABLED=.*|TLS_ENABLED=1|" "$ENVFILE"
+  bash "$APP_DIR/packaging/site-tls.sh" issue
+else
+  sed -i -E "s|^TLS_ENABLED=.*|TLS_ENABLED=0|" "$ENVFILE"
+fi
 chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
 
 systemctl daemon-reload
