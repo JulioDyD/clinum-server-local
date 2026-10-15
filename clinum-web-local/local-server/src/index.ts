@@ -51,10 +51,23 @@ const gateway = new SerialGateway(config.serialPort, config.serialBaud, {
 });
 
 let gatewayControlState: GatewayControlFrame = { msgType: "gateway_config_required", protocolVersion: 2 };
+let lastGatewaySummary = "";
+
+// Compara sin contadores volatiles (diagnostics): gateway_status llega
+// cada ~2s y solo se loguea cuando algo relevante cambia.
+function stableGatewaySummary(frame: GatewayControlFrame): string {
+  const { diagnostics, ...rest } = frame as GatewayControlFrame & Record<string, unknown>;
+  void diagnostics;
+  return JSON.stringify(rest);
+}
 
 function handleGatewayControl(frame: GatewayControlFrame): void {
   gatewayControlState = frame;
-  app.log.info({ frame }, "Gateway control state updated");
+  const summary = stableGatewaySummary(frame);
+  if (summary !== lastGatewaySummary) {
+    lastGatewaySummary = summary;
+    app.log.info({ frame }, "Gateway control state updated");
+  }
   if (frame.msgType === "gateway_config_ack" && frame.result === "stored") {
     setTimeout(() => gateway.requestGatewayStatus(), 1500);
   }

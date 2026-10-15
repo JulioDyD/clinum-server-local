@@ -38,6 +38,15 @@ export class SerialGateway {
                         if (uplinkMatch) {
                             jsonStr = uplinkMatch[1];
                         }
+                        else if (raw.startsWith("DEBUG status")) {
+                            // Telemetria periodica del gateway (uptime, heap, rutas):
+                            // solo se muestra si reporta perdidas/errores. El ultimo
+                            // estado sigue disponible en GET /gateway/status.
+                            if (/(drops\w+|errors|timeouts|overflow)=[1-9]/.test(raw)) {
+                                console.log(`[GATEWAY] ${raw}`);
+                            }
+                            return;
+                        }
                         else if (raw.startsWith("DEBUG")) {
                             console.log(`[GATEWAY] ${raw}`);
                             return;
@@ -49,11 +58,15 @@ export class SerialGateway {
                         }
                         try {
                             const frame = JSON.parse(jsonStr);
-                            console.log(`[SERIAL RX] ${jsonStr}`);
-                            if (frame.msgType.startsWith("gateway_"))
+                            if (frame.msgType.startsWith("gateway_")) {
+                                // gateway_status llega cada ~2s: sin log por frame,
+                                // handleGatewayControl solo reporta cambios de estado.
                                 this.callbacks.onGatewayControl(frame);
-                            else
+                            }
+                            else {
+                                console.log(`[SERIAL RX] ${jsonStr}`);
                                 this.callbacks.onFrame(frame);
+                            }
                         }
                         catch {
                             this.callbacks.onInvalidFrame(raw);
