@@ -90,6 +90,12 @@ cp -r "$APP_DIR/public"       "$OPT/public"
 #    se construye sobre una copia temporal del arbol).
 STAGE="$(mktemp -d)"
 cp -a "$ROOT" "$STAGE/root"
+# The default .env is gitignored (not in fresh clones). Generate it in
+# staging from .env.template so the conffile exists inside the package.
+# dpkg then installs it on new sites and preserves it on upgrades.
+if [ ! -f "$STAGE/root/etc/clinum-web-local/.env" ] && [ -f "$STAGE/root/etc/clinum-web-local/.env.template" ]; then
+  cp -a "$STAGE/root/etc/clinum-web-local/.env.template" "$STAGE/root/etc/clinum-web-local/.env"
+fi
 sed -i "s/__ARCH__/$DEB_ARCH/" "$STAGE/root/DEBIAN/control"
 grep -q "^Version:" "$STAGE/root/DEBIAN/control" || true
 
