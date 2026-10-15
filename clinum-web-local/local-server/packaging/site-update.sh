@@ -80,17 +80,10 @@ log "Light backup at: $BACKUP"
 log "Stopping service"
 systemctl stop "$SERVICE_NAME" || true
 
-log "Building target"
+log "Building target (single build inside build-deb.sh)"
 ensure_build_deps
-ensure_node "$APP_DIR/packaging/deb-root/opt/$PKG_NAME/runtime"
-cd "$APP_DIR"
-if [ -f package-lock.json ]; then npm ci; else npm install; fi
-npm run build
-[ -f dist/index.js ] || die "Build did not produce dist/index.js (backup kept at $BACKUP)"
-npm prune --omit=dev
-
-log "Building .deb"
 bash "$APP_DIR/packaging/build-deb.sh"
+[ -f "$APP_DIR/dist/index.js" ] || die "Build did not produce dist/index.js (backup kept at $BACKUP)"
 DEB_ARCH="$(detect_deb_arch)"
 DEB="$(ls -1t "$APP_DIR"/dist-deb/${PKG_NAME}_${TARGET}_${DEB_ARCH}.deb 2>/dev/null | head -n1 || \
        ls -1t "$APP_DIR"/dist-deb/*.deb 2>/dev/null | head -n1 || true)"

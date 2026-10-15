@@ -71,6 +71,18 @@ detect_serial() {
 
 ensure_build_deps() {
   export DEBIAN_FRONTEND=noninteractive
+  # Fast path: if toolchain is already present, skip apt entirely.
+  local cxx0=""
+  for c in g++-13 g++-12 g++-11; do
+    if command -v "$c" >/dev/null 2>&1; then cxx0="$c"; break; fi
+  done
+  if [ -n "$cxx0" ] && command -v gcc >/dev/null 2>&1 && command -v make >/dev/null 2>&1 \
+     && command -v python3 >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1 \
+     && command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    export CXX="$cxx0"
+    log "Build deps OK (apt skipped). CXX: $CXX"
+    return 0
+  fi
   log "System deps (Mint/Ubuntu)"
   # Do not abort on third-party repos with old GPG (typical Chrome on Mint);
   # needed packages come from Ubuntu/Mint base.

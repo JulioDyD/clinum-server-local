@@ -65,15 +65,9 @@ fi
 
 log "App dir: $APP_DIR"
 ensure_build_deps
-ensure_node "$APP_DIR/packaging/deb-root/opt/$PKG_NAME/runtime"
 
-log "Building (npm ci + build)"
-cd "$APP_DIR"
-if [ -f package-lock.json ]; then npm ci; else npm install; fi
-npm run build
-[ -f dist/index.js ] || die "Build did not produce dist/index.js"
-npm prune --omit=dev
-
+# Single build happens inside build-deb.sh (npm ci + tsc + prune).
+# (Older revisions built twice here and inside build-deb.sh: ~8 min wasted.)
 log "Building .deb"
 bash "$APP_DIR/packaging/build-deb.sh"
 
