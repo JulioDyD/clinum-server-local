@@ -10,6 +10,7 @@ APP_REL_PATH="clinum-web-local/local-server"
 DEFAULT_REPO="https://github.com/JulioDyD/clinum-server-local.git"
 DEFAULT_REF="main"
 DEFAULT_HTTP_PORT="8081"
+DEFAULT_SERIAL_PORT="/dev/ttyACM0"
 NODE_VERSION="20.18.1"
 ETCDIR="/etc/clinum-web-local"
 ENVFILE="$ETCDIR/.env"
@@ -63,12 +64,9 @@ find_app_dir() {
 
 detect_serial() {
   local prefer="${1:-}"
-  [ -n "$prefer" ] && [ "$prefer" != "auto" ] && { echo "$prefer"; return 0; }
-  [ -e /dev/ttyUSB0 ] && echo "/dev/ttyUSB0" && return 0
-  [ -e /dev/ttyACM0 ] && echo "/dev/ttyACM0" && return 0
-  local cand=""
-  cand="$(ls -1 /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -n1 || true)"
-  echo "${cand:-/dev/ttyUSB0}"
+  # Explicit path always wins. Empty or "auto" => fixed default (gateway uses ttyACM0).
+  if [ -n "$prefer" ] && [ "$prefer" != "auto" ]; then echo "$prefer"; return 0; fi
+  echo "$DEFAULT_SERIAL_PORT"
 }
 
 ensure_build_deps() {

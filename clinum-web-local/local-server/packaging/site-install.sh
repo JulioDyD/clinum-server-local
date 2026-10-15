@@ -4,15 +4,16 @@
 # is installed from there. Never copy by hand from Windows.
 # Usage:
 #   sudo bash site-install.sh [--repo URL] [--ref main|v1.2.3]
-#       [--serial auto|/dev/ttyUSB0] [--http-port 8081] [--workdir /tmp] [--yes]
-#   sudo bash site-install.sh --local [--serial auto] [--http-port 8081] [--yes]
+#       [--serial /dev/ttyACM0] [--http-port 8081] [--workdir /tmp] [--yes]
+#   Default serial is /dev/ttyACM0. Override only with --serial <path>.
+#   sudo bash site-install.sh --local [--serial /dev/ttyACM0] [--http-port 8081] [--yes]
 #     --local: no clone; uses current checkout (dev only).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; SERIAL_PREFER=""
+REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; SERIAL_PREFER="$DEFAULT_SERIAL_PORT"
 HTTP_PORT="$DEFAULT_HTTP_PORT"; WORKDIR="/tmp"; ASSUME_YES=0; LOCAL_MODE=0
 
 while [ $# -gt 0 ]; do
