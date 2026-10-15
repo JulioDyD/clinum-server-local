@@ -117,7 +117,7 @@ chmod -R go+rX "$SOPT"
 
 # 6. Construir el .deb (Version = package.json, sin tocar el template)
 mkdir -p "$OUTDIR"
-VERSION="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo 0.1.0)"
+VERSION="$(python3 -c 'import json; print(json.load(open("'"$APP_DIR"'/package.json")).get("version","0.1.0"))' 2>/dev/null || echo 0.1.0)"
 sed -i -E "s/^Version: .*/Version: $VERSION/" "$SDEBIAN/control"
 DEB="$OUTDIR/${PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
 rm -f "$DEB"

@@ -37,7 +37,7 @@ log "Target   : $REPO @ $REF"
 
 if [ "$LOCAL_MODE" -eq 1 ]; then
   APP_DIR="$(find_app_dir "$SCRIPT_DIR")"
-  TARGET="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo unknown)"
+  TARGET="$(pkg_version "$APP_DIR/package.json" 2>/dev/null || echo unknown)"
 else
   ensure_build_deps
   SRC="$WORKDIR/clinum-site-src"
@@ -49,7 +49,7 @@ else
   if [ -d "$SRC/$APP_REL_PATH" ]; then APP_DIR="$SRC/$APP_REL_PATH";
   elif [ -f "$SRC/package.json" ]; then APP_DIR="$SRC";
   else die "Checkout has no local-server."; fi
-  TARGET="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo unknown)"
+  TARGET="$(pkg_version "$APP_DIR/package.json" 2>/dev/null || echo unknown)"
 fi
 log "Target version: v$TARGET"
 

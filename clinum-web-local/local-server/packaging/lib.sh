@@ -124,7 +124,13 @@ ensure_node() {
 }
 
 installed_version() {
-  node -p "require('/opt/$PKG_NAME/package.json').version" 2>/dev/null || echo "none"
+  pkg_version "/opt/$PKG_NAME/package.json" 2>/dev/null || echo "none"
+}
+
+# Reads package.json version without needing node on PATH.
+pkg_version() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","unknown"))' "$1" 2>/dev/null \
+    || grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' "$1" 2>/dev/null | head -n1 | cut -d'"' -f4
 }
 
 backup_site() {

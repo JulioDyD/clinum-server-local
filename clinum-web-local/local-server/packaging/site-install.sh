@@ -72,7 +72,7 @@ log "Building .deb"
 bash "$APP_DIR/packaging/build-deb.sh"
 
 DEB_ARCH="$(detect_deb_arch)"
-VERSION="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo 0.1.0)"
+VERSION="$(pkg_version "$APP_DIR/package.json" 2>/dev/null || echo 0.1.0)"
 DEB="$(ls -1t "$APP_DIR"/dist-deb/${PKG_NAME}_${VERSION}_${DEB_ARCH}.deb 2>/dev/null | head -n1 || true)"
 [ -n "$DEB" ] || die "No .deb found in $APP_DIR/dist-deb"
 log ".deb: $DEB"
