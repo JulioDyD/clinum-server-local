@@ -62,6 +62,7 @@
 
     .no-calls-message { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; text-align: center; }
     .no-calls-message .big-icon { font-size: 5rem; }
+    .no-calls-message .big-icon svg { width: 5rem; height: 5rem; display: block; }
     .no-calls-message h2 { font-weight: 600; font-size: 2rem; margin: 20px 0 0; color: var(--header-color, #f59e0b); }
 
     .footer {
@@ -102,7 +103,7 @@
         </transition-group>
       </template>
       <div v-else class="no-calls-message">
-        <div class="big-icon">✅</div>
+        <div class="big-icon"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#f59e0b"/><path d="M20 33l8 8 16-17" stroke="#111111" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <h2>No hay llamados activos</h2>
       </div>
     </div>
