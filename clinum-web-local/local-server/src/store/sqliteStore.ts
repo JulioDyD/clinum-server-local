@@ -952,6 +952,7 @@ export class SqliteStore {
       updatedAtMs: now,
       startSeq: prev.start_seq as number,
       lastSeq: seq ?? (prev.last_seq as number),
+      finishOrigin: historyRecord.finishOrigin,
     };
     return { state, historyRecord };
   }
@@ -998,7 +999,7 @@ export class SqliteStore {
     const state = this._rowToCall(
       this.db.prepare("SELECT * FROM active_calls WHERE device_id = ?").get(deviceId) as Record<string, unknown>
     );
-    return { state, historyRecord };
+    return { state: { ...state, finishOrigin: historyRecord?.finishOrigin }, historyRecord };
   }
 
   /** Activos de normal/emergency + todos los especiales activos (N por dispositivo). */
@@ -1087,7 +1088,7 @@ export class SqliteStore {
     const state = this._rowToCall(
       this.db.prepare("SELECT * FROM active_calls WHERE device_id = ?").get(deviceId) as Record<string, unknown>
     );
-    return { state, historyRecord };
+    return { state: { ...state, finishOrigin: historyRecord?.finishOrigin }, historyRecord };
   }
   // ── Patients ───────────────────────────────────────────────────────────────
 

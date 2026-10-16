@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.template
+!.env.example
+service-account.json
+*-firebase-adminsdk-*.json
 
 # ── Bases de datos locales ─────────────────────────────────────────
 *.db

@@ -4,6 +4,8 @@ export const config = {
     serialPort: process.env.SERIAL_PORT ?? "COM5",
     serialBaud: Number(process.env.SERIAL_BAUD ?? 115200),
     firebaseProjectId: process.env.FIREBASE_PROJECT_ID ?? "clinum-2",
+    /** ID del doc locations/{id} en el web (vacío = sync de devices sin sede asociada) */
+    locationId: process.env.LOCATION_ID ?? "",
     localDbFile: process.env.LOCAL_DB_FILE ?? "./data/clinum.db",
     localOnly: (process.env.LOCAL_ONLY === "1" || process.env.DISABLE_FIREBASE === "1" || (process.env.SERIAL_PORT ?? "").toLowerCase() === "none"),
     corsOrigin: process.env.CORS_ORIGIN ?? "*",

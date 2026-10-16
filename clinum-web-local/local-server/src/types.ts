@@ -126,6 +126,8 @@ export type ActiveCallState = {
   lastSeq: number;
   /** Nombre del paciente asignado al llamador (se inyecta en el servidor) */
   patientName?: string;
+  /** Quién finalizó: llamador físico o monitor local (solo presente al cerrar) */
+  finishOrigin?: "llamador" | "monitor";
 };
 
 /** Registro local de un paciente (asignacion 1:1 con un llamador) */

@@ -10,7 +10,8 @@ import { SqliteStore } from "./store/sqliteStore.js";
 import { RealtimeHub } from "./ws/realtimeHub.js";
 import { SerialGateway } from "./serial/serialGateway.js";
 import { FirebaseBridge } from "./firebase/firebaseBridge.js";
-const firebaseEnabled = FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly);
+import { getIntegrationSettings, updateIntegrationSettings } from "./envSettings.js";
+FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly);
 // HTTPS with site CA when TLS_ENABLED=1 and key/cert exist.
 // Otherwise plain HTTP (dev or pre-TLS sites).
 function loadTls() {
@@ -28,7 +29,7 @@ const tlsActive = Boolean(tlsOptions);
 // whose API surface used here (routes, listen, server handle) is identical.
 const app = (tlsOptions ? Fastify({ logger: true, https: tlsOptions }) : Fastify({ logger: true }));
 const store = new SqliteStore(config.localDbFile);
-const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly);
+const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly, config.locationId);
 // Socket.IO se adjunta al servidor HTTP de Fastify directamente
 const hub = new RealtimeHub(app.server, (socket) => {
     // Envía estado actual al cliente recién conectado
@@ -674,7 +675,7 @@ app.get("/api/version", async () => ({
 app.get("/health", async () => ({
     ok: true,
     ts: Date.now(),
-    firebaseEnabled,
+    firebaseEnabled: firebase.isEnabled(),
     tls: tlsActive,
     serialPort: config.serialPort,
     version: systemVersion.version,
@@ -716,6 +717,21 @@ app.patch("/location-settings", async (req) => {
     const settings = store.updateLocationSettings(req.body ?? {});
     hub.publishLocationSettings(settings);
     return settings;
+});
+app.get("/integration-settings", async () => ({ ...getIntegrationSettings(), localOnly: !firebase.isEnabled() }));
+app.patch("/integration-settings", async (req, reply) => {
+    try {
+        const settings = updateIntegrationSettings(req.body ?? {});
+        // Aplica en caliente: activar/desactivar sync y cambiar de sede no requieren reiniciar.
+        // Cambiar de proyecto Firebase sí (el SDK de Admin ya quedó atado al proyecto inicial).
+        firebase.setLocationId(settings.locationId);
+        firebase.setEnabled(!settings.localOnly);
+        const projectChanged = settings.firebaseProjectId !== config.firebaseProjectId;
+        return { ...settings, localOnly: !firebase.isEnabled(), restartRequired: projectChanged };
+    }
+    catch (err) {
+        return reply.status(500).send({ error: err instanceof Error ? err.message : "No se pudo guardar la configuración" });
+    }
 });
 app.patch("/lamp-alert-profiles/:callType", async (req, reply) => {
     const profile = store.updateLampAlertProfile(req.params.callType, req.body ?? {});
@@ -1078,7 +1094,7 @@ async function bootstrap() {
         redirect.on("error", (err) => app.log.warn({ err }, "HTTP->HTTPS redirect failed; HTTPS still works"));
         redirect.listen(redirectPort, "0.0.0.0");
     }
-    app.log.info({ firebaseEnabled, tls: tlsActive, serialPort: config.serialPort, localDbFile: config.localDbFile }, `Local bridge running on :${config.localHttpPort}`);
+    app.log.info({ firebaseEnabled: firebase.isEnabled(), tls: tlsActive, serialPort: config.serialPort, localDbFile: config.localDbFile }, `Local bridge running on :${config.localHttpPort}`);
     process.on("SIGINT", () => {
         stopConfigWatch();
         store.close();

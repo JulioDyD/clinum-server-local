@@ -456,6 +456,7 @@
     .cfg-subcard h4 { margin: 0 0 0.15rem; font-size: 0.9rem; color: #f1f5f9; }
     .cfg-subcard .sub { margin: 0 0 0.8rem; font-size: 0.75rem; color: #94a3b8; }
     .cfg-info { margin-top: 1rem; background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.35); color: #bfdbfe; border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.82rem; }
+    .cfg-info-warn { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.4); color: #fde68a; }
     .report-progress { height: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 999px; overflow: hidden; margin-top: 0.9rem; }
     .report-progress > div { height: 100%; background: #3b82f6; }
     .type-bars { display: grid; gap: 0.5rem; margin-top: 0.9rem; }
@@ -1029,6 +1030,7 @@
         <button class="cfg-tab" :class="{ active: settingsTab === 'audio' }" @click="settingsTab = 'audio'">Audio y voz</button>
         <button class="cfg-tab" :class="{ active: settingsTab === 'reminders' }" @click="settingsTab = 'reminders'">Recordatorios</button>
         <button class="cfg-tab" :class="{ active: settingsTab === 'screen' }" @click="settingsTab = 'screen'">Pantalla</button>
+        <button class="cfg-tab" :class="{ active: settingsTab === 'integration' }" @click="settingsTab = 'integration'; loadIntegrationSettings()">Integración</button>
       </div>
 
       <section v-show="settingsTab === 'time'" class="cfg-card">
@@ -1133,6 +1135,33 @@
         <div class="modal-actions">
           <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar</button>
           <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
+        </div>
+      </section>
+
+      <section v-show="settingsTab === 'integration'" class="cfg-card">
+        <h3>Integración con el servidor web</h3>
+        <p class="desc">Conecta esta sede con <strong>clinum-2.web.app</strong> para que dispositivos, llamados e historial aparezcan allá en tiempo real.</p>
+        <div class="settings-grid">
+          <div class="field">
+            <label>ID de la sede (locationId)</label>
+            <input type="text" class="full" v-model="integrationSettings.locationId" placeholder="Ej. iXStZUMPAzQHyQ8RzsBf">
+          </div>
+          <div class="field">
+            <label>Proyecto Firebase</label>
+            <input type="text" class="full" v-model="integrationSettings.firebaseProjectId" placeholder="clinum-2">
+          </div>
+          <label class="toggle"><input type="checkbox" :checked="!integrationSettings.localOnly" @change="integrationSettings.localOnly = !$event.target.checked"> Sincronizar con el servidor web (desactiva el modo solo-local)</label>
+        </div>
+        <div class="cfg-info" :class="{ 'cfg-info-warn': !integrationSettings.hasServiceAccount }">
+          <div>📄 Credencial Firebase: <strong>{{ integrationSettings.hasServiceAccount ? 'Encontrada' : 'No encontrada' }}</strong></div>
+          <div>📁 Archivo de configuración: <span class="mono">{{ integrationSettings.envFilePath }}</span></div>
+          <div v-if="!integrationSettings.envFileWritable">⚠️ Este archivo no es escribible por el servidor; guarda manualmente o ajusta permisos.</div>
+          <div v-if="!integrationSettings.hasServiceAccount">⚠️ Sin credencial, el sync no podrá activarse aunque desactives el modo local.</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-xs btn-save" @click="saveIntegrationSettings">Guardar</button>
+          <span v-if="integrationSavedAt && !integrationSettings.restartRequired" class="assign-copy">Guardado ✓ — aplicado al instante</span>
+          <span v-if="integrationSavedAt && integrationSettings.restartRequired" class="assign-copy">Guardado ✓ — reinicia el servidor (cambiaste de proyecto Firebase)</span>
         </div>
       </section>
 
@@ -1946,6 +1975,28 @@ createApp({
       setTimeout(() => { settingsSavedAt.value = 0; }, 2500);
     };
 
+    // ── Integración con el servidor web ──
+    const integrationSettings = ref({ locationId: '', firebaseProjectId: '', localOnly: true, hasServiceAccount: false, envFilePath: '', envFileWritable: true });
+    const integrationSavedAt = ref(0);
+    const loadIntegrationSettings = async () => {
+      try {
+        integrationSettings.value = await fetch('/integration-settings').then(r => r.json());
+      } catch (e) { console.error('loadIntegrationSettings failed', e); }
+    };
+    const saveIntegrationSettings = async () => {
+      try {
+        const body = {
+          locationId: integrationSettings.value.locationId,
+          firebaseProjectId: integrationSettings.value.firebaseProjectId,
+          localOnly: integrationSettings.value.localOnly,
+        };
+        const response = await fetch('/integration-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+        integrationSettings.value = response;
+        integrationSavedAt.value = Date.now();
+        setTimeout(() => { integrationSavedAt.value = 0; }, 4000);
+      } catch (e) { console.error('saveIntegrationSettings failed', e); }
+    };
+
     const applyGatewayStatus = (status) => {
       gatewayStatus.value = status;
       if (status?.msgType !== 'gateway_status' || !status.provisioned) return;
@@ -1998,7 +2049,9 @@ createApp({
       networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics,
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
       patients, patientForm, patientSaving, patientError, patientMessage, assignedPatientName, openPatient, closePatient, savePatient, unassignPatient, removePatient, resendPatient,
-      tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV, connected, activeCalls, monitorCalls, specialCalls, filteredSpecialCalls, sortedSpecialCalls, specialProfiles,
+      tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV,
+      integrationSettings, integrationSavedAt, loadIntegrationSettings, saveIntegrationSettings,
+      connected, activeCalls, monitorCalls, specialCalls, filteredSpecialCalls, sortedSpecialCalls, specialProfiles,
       SPECIAL_CALL_TYPES, specialFilter, specialLampIds, specialCountByType, specialTypeIcon,
       devices, callers, tactileCallers, capacitiveCallers, repeaters, callHistory, lamps, alertProfiles, assignDevice, selectedLampIds, presetColors,
       colorLabels, animationLabels, soundLabels, locationSettings, soundFiles, settingsSavedAt,
