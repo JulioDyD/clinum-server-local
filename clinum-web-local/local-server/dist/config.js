@@ -15,9 +15,4 @@ export const config = {
         keyFile: process.env.TLS_KEY_FILE ?? "/etc/clinum-web-local/tls/server.key",
         redirectPort: Number(process.env.TLS_REDIRECT_PORT ?? 8080),
     },
-    xkiro: {
-        apiKey: process.env.XKIRO_API_KEY,
-        baseURL: process.env.XKIRO_BASE_URL ?? "https://api.xkiro.com/v1",
-        model: process.env.XKIRO_MODEL ?? "qwen/qwen3.8-max:free",
-    },
 };
