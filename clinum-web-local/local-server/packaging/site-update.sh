@@ -93,7 +93,17 @@ dpkg -i "$DEB" || { apt-get -f install -y && dpkg -i "$DEB"; }
 # dpkg respects conffiles: /etc/clinum-web-local/.env is NOT overwritten.
 log ".env preserved: $ENVFILE"
 ensure_tls_env
-chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
+# 0660: grupo clinum (servicio + soporte) con lectura y escritura, para que el
+# panel (PATCH /integration-settings) y la edicion manual funcionen sin sudo
+# adicional por archivo.
+chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
+if getent passwd soporte >/dev/null; then
+  adduser soporte clinum >/dev/null 2>&1 || true
+fi
+if [ -f "/etc/clinum-web-local/service-account.json" ]; then
+  chown root:clinum "/etc/clinum-web-local/service-account.json" || true
+  chmod 0640 "/etc/clinum-web-local/service-account.json" || true
+fi
 
 # HTTPS with site-internal CA (method B). Keeps existing CA (no client reinstall),
 # issues the server cert on first TLS upgrade.
