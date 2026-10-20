@@ -3,6 +3,7 @@ set -e
 
 APP_USER="clinum"
 APP_GROUP="clinum"
+SUPPORT_USER="soporte"
 ETCDIR="/etc/clinum-web-local"
 VARDIR="/var/lib/clinum-web-local"
 LOGDIR="/var/log/clinum-web-local"
@@ -10,6 +11,12 @@ LOGDIR="/var/log/clinum-web-local"
 # Usuario de sistema (sin login, sin home)
 if ! getent passwd "$APP_USER" >/dev/null; then
   adduser --system --group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+fi
+
+# El usuario genérico de soporte (si existe en esta máquina) entra al grupo
+# clinum para poder editar .env / colocar la credencial sin sudo por archivo.
+if getent passwd "$SUPPORT_USER" >/dev/null; then
+  adduser "$SUPPORT_USER" "$APP_GROUP" || true
 fi
 
 # Acceso al puerto serial (/dev/ttyUSB* , /dev/ttyACM*)
@@ -26,10 +33,23 @@ chown -R "$APP_USER":"$APP_GROUP" "$VARDIR" "$LOGDIR"
 chmod 0755 "$VARDIR" "$LOGDIR"
 
 # .env por defecto (conffile: no lo sobreescribe en upgrades)
+# 0660: el grupo clinum (servicio + soporte) puede leer Y escribir, para que
+# el panel (PATCH /integration-settings) y la edición manual por soporte
+# funcionen sin tocar permisos a mano en cada sede.
 if [ ! -f "$ETCDIR/.env" ]; then
   cp "$ETCDIR/.env.template" "$ETCDIR/.env"
   chown root:"$APP_GROUP" "$ETCDIR/.env"
-  chmod 0640 "$ETCDIR/.env"
+  chmod 0660 "$ETCDIR/.env"
+else
+  # Instalación existente: corrige permisos de versiones anteriores (0640).
+  chown root:"$APP_GROUP" "$ETCDIR/.env" || true
+  chmod 0660 "$ETCDIR/.env" || true
+fi
+
+# Credencial de servicio (si ya existe en esta sede): mismo grupo, solo lectura.
+if [ -f "$ETCDIR/service-account.json" ]; then
+  chown root:"$APP_GROUP" "$ETCDIR/service-account.json" || true
+  chmod 0640 "$ETCDIR/service-account.json" || true
 fi
 
 # systemd

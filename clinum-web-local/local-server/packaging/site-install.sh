@@ -91,7 +91,12 @@ if [ "$USE_HTTPS" -eq 1 ]; then
 else
   sed -i -E "s|^TLS_ENABLED=.*|TLS_ENABLED=0|" "$ENVFILE"
 fi
-chown root:clinum "$ENVFILE"; chmod 0640 "$ENVFILE"
+chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
+# Usuario genérico de soporte (si existe en esta máquina): mismo grupo que el
+# servicio, para editar .env / colocar la credencial sin sudo por archivo.
+if getent passwd soporte >/dev/null; then
+  adduser soporte clinum || true
+fi
 
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"

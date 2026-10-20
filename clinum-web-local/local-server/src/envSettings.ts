@@ -44,7 +44,10 @@ export function getIntegrationSettings(): IntegrationSettings {
   try {
     const content = fs.existsSync(envFilePath) ? fs.readFileSync(envFilePath, "utf8") : "";
     values = parseEnvLines(content).values;
-    fs.accessSync(path.dirname(envFilePath), fs.constants.W_OK);
+    // Si el archivo ya existe, el permiso que importa es el del archivo (chmod del
+    // grupo clinum/soporte), no el del directorio (normalmente root:root en /etc).
+    const checkPath = fs.existsSync(envFilePath) ? envFilePath : path.dirname(envFilePath);
+    fs.accessSync(checkPath, fs.constants.W_OK);
     envFileWritable = true;
   } catch {
     envFileWritable = false;
