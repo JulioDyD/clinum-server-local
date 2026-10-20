@@ -13,7 +13,8 @@ import { SerialGateway } from "./serial/serialGateway.js";
 import { FirebaseBridge } from "./firebase/firebaseBridge.js";
 import { getIntegrationSettings, updateIntegrationSettings, type IntegrationSettingsInput } from "./envSettings.js";
 
-FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly);
+const _integration0 = getIntegrationSettings();
+FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly, _integration0.serviceAccountPath);
 
 // HTTPS with site CA when TLS_ENABLED=1 and key/cert exist.
 // Otherwise plain HTTP (dev or pre-TLS sites).
@@ -32,7 +33,7 @@ const tlsActive = Boolean(tlsOptions);
 // whose API surface used here (routes, listen, server handle) is identical.
 const app = (tlsOptions ? Fastify({ logger: true, https: tlsOptions }) : Fastify({ logger: true })) as unknown as FastifyInstance;
 const store = new SqliteStore(config.localDbFile);
-const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly, config.locationId);
+const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly, config.locationId, _integration0.serviceAccountPath);
 
 // Socket.IO se adjunta al servidor HTTP de Fastify directamente
 const hub = new RealtimeHub(app.server, (socket) => {
@@ -756,7 +757,7 @@ app.patch<{ Body: Partial<LocationSettings> }>("/location-settings", async (req)
   return settings;
 });
 
-app.get("/integration-settings", async () => ({ ...getIntegrationSettings(), localOnly: !firebase.isEnabled() }));
+app.get("/integration-settings", async () => ({ ...getIntegrationSettings(), localOnly: !firebase.isEnabled(), lastError: firebase.getLastError() }));
 
 app.patch<{ Body: IntegrationSettingsInput }>("/integration-settings", async (req, reply) => {
   try {
@@ -766,7 +767,7 @@ app.patch<{ Body: IntegrationSettingsInput }>("/integration-settings", async (re
     firebase.setLocationId(settings.locationId);
     firebase.setEnabled(!settings.localOnly);
     const projectChanged = settings.firebaseProjectId !== config.firebaseProjectId;
-    return { ...settings, localOnly: !firebase.isEnabled(), restartRequired: projectChanged };
+    return { ...settings, localOnly: !firebase.isEnabled(), restartRequired: projectChanged, lastError: firebase.getLastError() };
   } catch (err) {
     return reply.status(500).send({ error: err instanceof Error ? err.message : "No se pudo guardar la configuración" });
   }

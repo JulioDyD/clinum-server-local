@@ -33,6 +33,7 @@ export type IntegrationSettings = {
   firebaseProjectId: string;
   localOnly: boolean;
   hasServiceAccount: boolean;
+  serviceAccountPath: string;
   envFilePath: string;
   envFileWritable: boolean;
 };
@@ -61,6 +62,7 @@ export function getIntegrationSettings(): IntegrationSettings {
     firebaseProjectId: values.FIREBASE_PROJECT_ID ?? process.env.FIREBASE_PROJECT_ID ?? "clinum-2",
     localOnly: (values.LOCAL_ONLY ?? process.env.LOCAL_ONLY ?? "1") === "1",
     hasServiceAccount: fs.existsSync(resolvedCredPath),
+    serviceAccountPath: resolvedCredPath,
     envFilePath,
     envFileWritable,
   };

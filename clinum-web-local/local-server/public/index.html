@@ -1158,6 +1158,10 @@
           <div v-if="!integrationSettings.envFileWritable">⚠️ Este archivo no es escribible por el servidor; guarda manualmente o ajusta permisos.</div>
           <div v-if="!integrationSettings.hasServiceAccount">⚠️ Sin credencial, el sync no podrá activarse aunque desactives el modo local.</div>
         </div>
+        <div v-if="integrationSettings.lastError" class="cfg-info cfg-info-warn">
+          <div>⚠️ Último error de sincronización ({{ formatDateTime(integrationSettings.lastError.atMs) }}):</div>
+          <div class="mono">{{ integrationSettings.lastError.message }}</div>
+        </div>
         <div class="modal-actions">
           <button class="btn-xs btn-save" @click="saveIntegrationSettings">Guardar</button>
           <span v-if="integrationSavedAt && !integrationSettings.restartRequired" class="assign-copy">Guardado ✓ — aplicado al instante</span>

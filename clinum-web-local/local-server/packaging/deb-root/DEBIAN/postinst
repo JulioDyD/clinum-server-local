@@ -52,6 +52,14 @@ if [ -f "$ETCDIR/service-account.json" ]; then
   chmod 0640 "$ETCDIR/service-account.json" || true
 fi
 
+# Sedes instaladas antes de esta version no tienen GOOGLE_APPLICATION_CREDENTIALS
+# en su .env (bug corregido): sin esa variable, el SDK de Firebase no encuentra
+# la credencial aunque el archivo exista en disco, y el sync falla en silencio.
+# La agregamos si falta, sin tocar el resto del .env del admin.
+if [ -f "$ETCDIR/.env" ] && ! grep -q '^GOOGLE_APPLICATION_CREDENTIALS=' "$ETCDIR/.env"; then
+  echo "GOOGLE_APPLICATION_CREDENTIALS=$ETCDIR/service-account.json" >> "$ETCDIR/.env"
+fi
+
 # systemd
 systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl enable clinum-web-local >/dev/null 2>&1 || true
