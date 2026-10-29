@@ -863,7 +863,7 @@ export class SqliteStore {
       clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch),
       clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume),
       (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0,
-      clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 10, 900, 120),
+      clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 5, 900, 120),
       clamp(values.uiScalePercent ?? current.uiScalePercent ?? 100, 50, 200, 100),
     );
     return this.getLocationSettings();

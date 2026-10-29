@@ -16,6 +16,7 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
     if (file === "index.html") {
       assert.match(html, /v-show="tab === 'patients'"/);
       assert.match(html, /info-pill-mac/);
+      assert.match(html, /<option :value="5">5 segundos<\/option>/);
       assert.match(html, /<option :value="10">10 segundos<\/option>/);
       assert.match(html, /<option :value="20">20 segundos<\/option>/);
       assert.match(html, /Firmware <strong class="info-mono">/);

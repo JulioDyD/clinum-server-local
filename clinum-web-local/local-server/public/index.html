@@ -1202,6 +1202,7 @@
           <div class="field">
             <label>Repetir cada</label>
             <select v-model.number="locationSettings.pendingReminderIntervalS">
+              <option :value="5">5 segundos</option>
               <option :value="10">10 segundos</option>
               <option :value="20">20 segundos</option>
               <option :value="30">30 segundos</option>
