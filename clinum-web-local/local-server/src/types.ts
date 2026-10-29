@@ -67,6 +67,8 @@ export type LocationSettings = {
   pendingReminderEnabled: boolean;
   /** Cada cuántos segundos se repite el aviso (10–900) */
   pendingReminderIntervalS: number;
+  /** Escala de la pantalla de sala en porcentaje (50-200) */
+  uiScalePercent: number;
 };
 
 export type IncomingFrame = {

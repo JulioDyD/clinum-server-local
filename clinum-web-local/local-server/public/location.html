@@ -11,23 +11,26 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
     .location-screen {
-      display: flex; flex-direction: column; height: 100vh; width: 100vw;
+      position: absolute; left: 50%; top: 50%;
+      display: flex; flex-direction: column;
       background-color: var(--bg-color, #0f172a); color: var(--text-color, #ffffff);
       font-family: Arial, sans-serif; overflow: hidden;
+      will-change: transform;
     }
     .header-row {
       display: flex; background-color: var(--bg-color, #0f172a); color: var(--header-color, #f59e0b);
       font-size: 2.5rem; font-weight: bold; padding: 10px 20px; border-bottom: 2px solid var(--header-color, #f59e0b);
     }
+    .header-row, .footer { flex-shrink: 0; }
     .header-col.llamando { flex: 1 1 auto; }
     .header-col.llam { flex: 0 0 140px; text-align: center; }
     .header-col.tiempo { flex: 0 0 220px; text-align: right; }
 
-    .calls-container { flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column; padding: 0.6rem 0; }
+    .calls-container { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0.6rem 0; }
     .call-row {
       display: flex; align-items: center; padding: 15px 20px; margin: 0 1.2rem 0.4rem; border-radius: 6px;
       font-size: 2.2rem; gap: 1rem; background: rgba(30,41,59,0.85);
-      border-left: 4px solid var(--normal-call-color, #0ea5e9);
+      border-left: 4px solid var(--normal-call-color, #22c55e);
       transition: background-color 0.3s ease;
     }
     .call-row.emergency-call { background: rgba(239,68,68,0.18); border-left: 6px solid var(--emergency-call-color, #ef4444); box-shadow: 0 0 20px rgba(239,68,68,0.6); }
@@ -41,18 +44,16 @@
     .call-col.tiempo { flex: 0 0 220px; text-align: right; font-family: 'Courier New', monospace; font-weight: 800; color: var(--timer-color, #22c55e); }
     .call-col.tiempo.emergency-time { color: var(--emergency-call-color, #ef4444); }
 
-    .bed-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px; margin-right: 15px; color: var(--normal-call-color, #0ea5e9); }
+    .bed-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px; margin-right: 15px; color: var(--normal-call-color, #22c55e); }
     .bed-icon svg { width: 100%; height: 100%; }
     .call-row.emergency-call .bed-icon { color: var(--emergency-call-color, #ef4444); filter: drop-shadow(0 0 6px rgba(239,68,68,0.7)); }
-    .mirror-icon { transform: scaleX(-1); }
     .call-text { display: inline-flex; align-items: center; white-space: nowrap; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
     .call-base { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .patient-gap { display: inline-block; white-space: pre; flex-shrink: 0; }
     .patient-icon { display: inline-flex; align-items: center; flex-shrink: 0; width: 44px; height: 44px; margin-right: 10px; }
     .patient-icon svg { width: 100%; height: 100%; }
     .patient-name { white-space: nowrap; flex-shrink: 0; }
-    .call-row.emergency-call .call-text { color: var(--emergency-call-color, #ef4444); }
-    .call-row:not(.emergency-call) .call-text { color: var(--normal-call-color, #0ea5e9); }
+    .call-row .call-text { color: var(--text-color, #ffffff); }
 
     .call-animation-enter-active { transition: all 0.8s ease-out; }
     .call-animation-leave-active { transition: all 0.6s ease-in; position: absolute; }
@@ -66,17 +67,17 @@
     .no-calls-message h2 { font-weight: 600; font-size: 2rem; margin: 20px 0 0; color: var(--header-color, #f59e0b); }
 
     .footer {
-      display: flex; justify-content: space-between; align-items: center; padding: 12px 22px;
+      display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 22px;
       border-top: 1px solid var(--header-color, #f59e0b); font-size: 1.2rem; color: #94a3b8;
       background-color: rgba(26,26,26,0.9); margin-top: auto;
     }
-    .location-info { font-weight: bold; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
-    .last-updated { font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
+    .location-info { flex: 1 1 auto; min-width: 0; font-weight: bold; color: var(--header-color, #f59e0b); font-size: 1.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .last-updated { flex: 0 0 auto; white-space: nowrap; font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
   </style>
 </head>
 <body>
 <div id="app">
-  <div class="location-screen" :style="cssVariables">
+  <div class="location-screen" :style="[cssVariables, screenTransform]">
     <div class="header-row">
       <div class="header-col llamando">LLAMANDO DESDE</div>
       <div class="header-col llam">LLAM</div>
@@ -93,7 +94,7 @@
             :class="{ 'emergency-call': call.isEmergency, 'new-call': newCallIds.includes(call.deviceId) }"
           >
             <div class="call-col llamando">
-              <span class="bed-icon" :class="{ 'mirror-icon': call.mirror }" v-html="locationIconSvg(call.locationType)">
+              <span class="bed-icon" v-html="locationIconSvg(call.locationType)">
               </span>
               <span class="call-text"><span class="call-base">{{ call.name }}</span><template v-if="call.patientName"><span class="patient-gap" aria-hidden="true">&nbsp;&nbsp;&nbsp;</span><span class="patient-icon" title="Paciente asignado" v-html="accountSvg"></span><span class="patient-name">{{ call.patientName }}</span></template></span>
             </div>
@@ -111,7 +112,7 @@
     <div class="footer">
       <div class="location-info">
         {{ settings.name || 'Sede sin nombre' }}
-        <span v-if="allCalls.length > MAX_VISIBLE_CALLS"> — Mostrando {{ visibleCalls.length }} de {{ allCalls.length }}</span>
+        <span v-if="allCalls.length > maxVisibleCalls"> — Mostrando {{ visibleCalls.length }} de {{ allCalls.length }}</span>
       </div>
       <div class="last-updated">{{ formattedCurrentTime }}</div>
     </div>
@@ -130,14 +131,21 @@ const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
 
 createApp({
   setup() {
-    const MAX_VISIBLE_CALLS = 7;
+    const BASE_WIDTH = 1920;
+    const BASE_HEIGHT = 1080;
+    const BASE_VISIBLE_CALLS = 7;
     const ROTATION_INTERVAL_MS = 10000;
+    const viewport = reactive({ w: window.innerWidth, h: window.innerHeight });
+    const updateViewport = () => {
+      viewport.w = window.innerWidth;
+      viewport.h = window.innerHeight;
+    };
 
     const calls = ref([]); // ActiveCallState[] tal cual llega del servidor
     const devices = ref([]);
     const settings = ref({
-      name: '', pendingReminderEnabled: false, pendingReminderIntervalS: 120, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
-      normalCallColor: '#0ea5e9', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
+      name: '', pendingReminderEnabled: false, pendingReminderIntervalS: 120, uiScalePercent: 100, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      normalCallColor: '#22c55e', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
       soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
       voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
     });
@@ -170,6 +178,25 @@ createApp({
       '--emergency-call-color': settings.value.emergencyCallColor,
       '--timer-color': settings.value.timerColor,
     }));
+
+    const screenScale = computed(() => {
+      const pct = Number(settings.value.uiScalePercent) || 100;
+      return Math.max(50, Math.min(200, pct)) / 100;
+    });
+    const fitScale = computed(() =>
+      Math.min(viewport.w / BASE_WIDTH, viewport.h / BASE_HEIGHT)
+    );
+    const screenTransform = computed(() => ({
+      width: `${BASE_WIDTH / screenScale.value}px`,
+      height: `${BASE_HEIGHT / screenScale.value}px`,
+      transform: `translate(-50%, -50%) scale(${fitScale.value * screenScale.value})`,
+      transformOrigin: 'center center',
+    }));
+    const maxVisibleCalls = computed(() => {
+      const layoutHeight = BASE_HEIGHT / screenScale.value;
+      const capacity = Math.floor((layoutHeight - 126) / 72);
+      return Math.max(1, Math.min(BASE_VISIBLE_CALLS, capacity));
+    });
 
     const getDeviceName = (deviceId) => {
       const d = devices.value.find(x => x.deviceId === deviceId);
@@ -209,7 +236,6 @@ createApp({
             isEmergency: c.call_type === 'emergency',
             name: getDeviceName(c.deviceId),
             locationType,
-            mirror: locationType === 'bano',
           };
         })
         .sort((a, b) => {
@@ -221,9 +247,10 @@ createApp({
 
     const visibleCalls = computed(() => {
       const total = allCalls.value.length;
-      if (total <= MAX_VISIBLE_CALLS) return allCalls.value;
+      const limit = maxVisibleCalls.value;
+      if (total <= limit) return allCalls.value;
       const start = rotationIndex.value % total;
-      const end = start + MAX_VISIBLE_CALLS;
+      const end = start + limit;
       if (end <= total) return allCalls.value.slice(start, end);
       return [...allCalls.value.slice(start), ...allCalls.value.slice(0, end - total)];
     });
@@ -409,6 +436,8 @@ createApp({
     onMounted(async () => {
       document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
+      updateViewport();
+      window.addEventListener('resize', updateViewport);
 
       try {
         const [callsRes, devicesRes, settingsRes] = await Promise.all([
@@ -441,13 +470,14 @@ createApp({
         checkPendingReminder();
       }, 1000);
       rotationTimer = setInterval(() => {
-        if (allCalls.value.length > MAX_VISIBLE_CALLS) {
+        if (allCalls.value.length > maxVisibleCalls.value) {
           rotationIndex.value = (rotationIndex.value + 1) % allCalls.value.length;
         }
       }, ROTATION_INTERVAL_MS);
     });
 
     onUnmounted(() => {
+      window.removeEventListener('resize', updateViewport);
       if (socket) socket.disconnect();
       clearInterval(clockTimer);
       clearInterval(timerTimer);
@@ -455,7 +485,7 @@ createApp({
     });
 
     return {
-      MAX_VISIBLE_CALLS, allCalls, visibleCalls, settings, cssVariables, newCallIds,
+      maxVisibleCalls, allCalls, visibleCalls, settings, cssVariables, screenTransform, newCallIds,
       formattedCurrentTime, formatCallTime, locationIconSvg, accountSvg,
       alertSound, alertSoundBackup1, alertSoundBackup2,
       emergencySound, emergencySoundBackup1, emergencySoundBackup2,

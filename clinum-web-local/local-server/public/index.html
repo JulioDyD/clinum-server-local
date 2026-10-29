@@ -253,16 +253,25 @@
     }
 
     /* ── Table ── */
-    .table-wrap { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; margin-bottom: 2rem; }
+    .table-wrap { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow-x: auto; margin-bottom: 2rem; }
     table { width: 100%; border-collapse: collapse; }
     th {
-      background: #0f172a; padding: 0.7rem 1rem; text-align: left;
-      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.07em; color: #475569; border-bottom: 1px solid #334155;
+      background: #0f172a; padding: 0.75rem 1rem; text-align: left;
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: #94a3b8; border-bottom: 1px solid #334155;
     }
-    td { padding: 0.85rem 1rem; font-size: 0.875rem; border-bottom: 1px solid #161e2e; vertical-align: middle; }
+    td { padding: 0.9rem 1rem; font-size: 0.9rem; border-bottom: 1px solid #161e2e; vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,0.015); }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .callers-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+    .th-sort {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+      color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit;
+    }
+    .th-sort:hover { color: #e2e8f0; }
+    .th-sort.active { color: #60a5fa; }
+    .sort-mark { font-size: 0.65rem; opacity: 0.8; }
 
     /* ── Status dot ── */
     .status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; }
@@ -274,9 +283,11 @@
     .edit-row { display: flex; align-items: center; gap: 6px; }
     .edit-input {
       background: #0f172a; border: 1px solid #3b82f6; border-radius: 6px;
-      padding: 0.28rem 0.55rem; color: #f1f5f9; font-size: 0.875rem; width: 160px;
+      padding: 0.35rem 0.6rem; color: #f1f5f9; font-size: 0.9rem; width: 260px; max-width: 100%;
     }
     .edit-input:focus { outline: none; border-color: #60a5fa; }
+    .row-actions { display: flex; gap: 4px; align-items: center; }
+    .callers-mobile-sort { display: none; }
     .btn-xs {
       padding: 0.22rem 0.55rem; border-radius: 5px; border: none;
       cursor: pointer; font-size: 0.72rem; font-weight: 700;
@@ -299,7 +310,7 @@
     .hbadge.type5 { background: #164e63; color: #67e8f9; }
     .hbadge.type6 { background: #3b0764; color: #d8b4fe; }
 
-    .mono { font-family: 'Courier New', monospace; font-size: 0.78rem; color: #475569; }
+    .mono { font-family: 'Courier New', monospace; font-size: 0.8rem; color: #94a3b8; }
     .sub  { font-size: 0.7rem; color: #475569; margin-top: 1px; }
 
     /* ── End call button ── */
@@ -415,6 +426,7 @@
     }
     .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+    .modal-actions .btn-reset { margin-right: auto; }
     .assign-title { font-size: 0.95rem; color: #f8fafc; margin-bottom: 0.3rem; }
     .assign-copy { font-size: 0.74rem; color: #64748b; line-height: 1.45; margin-bottom: 1rem; }
     .assignment-list { display: grid; gap: 0.45rem; margin: 0.8rem 0 1rem; max-height: 320px; overflow: auto; }
@@ -427,7 +439,6 @@
     .loc-select-wrapper { display: flex; align-items: center; gap: 0.5rem; }
     .loc-icon { display: inline-flex; width: 18px; height: 18px; color: #94a3b8; flex-shrink: 0; }
     .loc-icon svg { width: 100%; height: 100%; }
-    .loc-icon.bano svg { transform: scaleX(-1); }
     .settings-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.1rem; display: grid; gap: 1.25rem; }
     .info-hero { background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 60%, #0f172a 100%); border: 1px solid #334155; border-radius: 14px; padding: 1.4rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; box-shadow: 0 12px 32px rgba(0,0,0,.35); }
     .info-hero h2 { margin: 0; font-size: 1.25rem; color: #fff; }
@@ -480,6 +491,42 @@
     .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; align-items: end; }
     .settings-grid input[type="color"] { width: 100%; height: 36px; padding: 2px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; }
     .settings-grid input[type="range"] { width: 100%; }
+    .scale-control { display: flex; align-items: center; gap: 0.5rem; }
+    .scale-btn { width: 34px; height: 34px; background: #334155; color: #e2e8f0; font-size: 1rem; line-height: 1; }
+    .scale-btn:hover:not(:disabled) { background: #475569; }
+    .scale-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .scale-value { min-width: 52px; text-align: center; font-weight: 700; color: #e2e8f0; }
+    .preview-block { margin-top: 1.1rem; }
+    .preview-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .preview-head > span { font-size: 0.66rem; color: #64748b; text-transform: uppercase; font-weight: 700; }
+    .preview-toggle { display: flex; gap: 0.35rem; }
+    .preview-toggle .btn-xs { background: #334155; color: #cbd5e1; }
+    .preview-toggle .btn-xs.active { background: #0ea5e9; color: #06283d; font-weight: 700; }
+    .screen-preview-wrap { position: relative; width: 100%; max-width: 560px; aspect-ratio: 16 / 9; background: #000; border: 1px solid #334155; border-radius: 10px; overflow: hidden; }
+    .msx { position: absolute; left: 50%; top: 50%; display: flex; flex-direction: column; overflow: hidden; font-family: Arial, sans-serif; background-color: var(--bg-color, #0f172a); color: var(--text-color, #ffffff); }
+    .msx-header { display: flex; background-color: var(--bg-color, #0f172a); color: var(--header-color, #f59e0b); font-size: 2.5rem; font-weight: bold; padding: 10px 20px; border-bottom: 2px solid var(--header-color, #f59e0b); flex-shrink: 0; }
+    .msx-header .llamando { flex: 1 1 auto; }
+    .msx-header .llam { flex: 0 0 140px; text-align: center; }
+    .msx-header .tiempo { flex: 0 0 220px; text-align: right; }
+    .msx-calls { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0.6rem 0; }
+    .msx-row { display: flex; align-items: center; padding: 15px 20px; margin: 0 1.2rem 0.4rem; border-radius: 6px; font-size: 2.2rem; gap: 1rem; background: rgba(30,41,59,0.85); border-left: 4px solid var(--normal-call-color, #22c55e); }
+    .msx-row.emergency { background: rgba(239,68,68,0.18); border-left: 6px solid var(--emergency-call-color, #ef4444); }
+    .msx-row .llamando { flex: 1 1 auto; display: flex; align-items: center; gap: 0.9rem; min-width: 0; }
+    .msx-row .llam { flex: 0 0 140px; text-align: center; font-weight: 700; }
+    .msx-row .tiempo { flex: 0 0 220px; text-align: right; font-family: 'Courier New', monospace; font-weight: 800; color: var(--timer-color, #22c55e); }
+    .msx-row.emergency .tiempo { color: var(--emergency-call-color, #ef4444); }
+    .msx-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px; color: var(--normal-call-color, #22c55e); }
+    .msx-row.emergency .msx-icon { color: var(--emergency-call-color, #ef4444); }
+    .msx-icon svg { width: 100%; height: 100%; }
+    .msx-text { display: inline-flex; align-items: center; white-space: nowrap; min-width: 0; overflow: hidden; }
+    .msx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .msx-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 22px; border-top: 1px solid var(--header-color, #f59e0b); font-size: 1.2rem; color: #94a3b8; background-color: rgba(26,26,26,0.9); flex-shrink: 0; }
+    .msx-location { flex: 1 1 auto; min-width: 0; font-weight: bold; color: var(--header-color, #f59e0b); font-size: 1.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .msx-time { flex: 0 0 auto; white-space: nowrap; font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
+    .msx-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; text-align: center; }
+    .msx-empty .big-icon { font-size: 5rem; }
+    .msx-empty .big-icon svg { width: 5rem; height: 5rem; display: block; }
+    .msx-empty h2 { font-weight: 600; font-size: 2rem; margin: 20px 0 0; color: var(--header-color, #f59e0b); }
     .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; margin-bottom: 1.25rem; }
     .profile-row { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.8rem; display: grid; gap: 0.65rem; }
     .profile-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
@@ -508,6 +555,40 @@
       .lamp-row { grid-template-columns: 1fr; }
       .lamp-controls { justify-content: flex-start; }
       .modal-card { max-width: 100%; }
+    }
+
+    @media (max-width: 760px) {
+      .callers-mobile-sort { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.85rem; flex-wrap: wrap; }
+      .callers-mobile-sort label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #94a3b8; }
+      .callers-mobile-sort select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 0.4rem 0.55rem; font-size: 0.85rem; }
+      .callers-wrap { background: transparent; border: none; border-radius: 0; overflow: visible; }
+      .callers-table, .callers-table thead, .callers-table tbody, .callers-table tr { display: block; width: 100%; }
+      .callers-table thead { display: none; }
+      .callers-table tr {
+        background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+        padding: 0.8rem 0.9rem; margin-bottom: 0.75rem;
+      }
+      .callers-table tr:hover td,
+      .callers-table tbody tr:nth-child(even) td { background: transparent; }
+      .callers-table td {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        padding: 0.38rem 0; border-bottom: 1px solid #263449;
+        font-size: 0.85rem; text-align: right;
+      }
+      .callers-table td:last-child { border-bottom: none; padding-top: 0.65rem; }
+      .callers-table td::before {
+        content: attr(data-label); flex: 0 0 auto; text-align: left;
+        font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.06em; color: #64748b;
+      }
+      .callers-table td:last-child::before { display: none; }
+      .callers-table td > .loc-select-wrapper { justify-content: flex-end; }
+      .callers-table .edit-row { flex: 1 1 auto; justify-content: flex-end; }
+      .callers-table .edit-input { width: 100%; min-width: 0; }
+      .callers-table .row-actions { justify-content: flex-end; flex-wrap: wrap; }
+      .callers-table .row-actions .btn-xs { flex: 1 1 auto; justify-content: center; }
+      .callers-table td.mono { overflow-wrap: anywhere; }
+      .callers-table .loc-select { max-width: 100%; }
     }
   </style>
 </head>
@@ -652,29 +733,46 @@
         </div>
       </div>
 
+      <div class="callers-mobile-sort">
+        <label>Ordenar por
+          <select :value="callerSortKey" @change="setCallerSortKey($event.target.value)">
+            <option value="">Predeterminado</option>
+            <option value="name">Nombre</option>
+            <option value="deviceId">ID dispositivo</option>
+            <option value="mac">MAC</option>
+            <option value="location">Ubicación</option>
+            <option value="transport">Red</option>
+            <option value="firmware">Firmware</option>
+            <option value="status">Estado</option>
+            <option value="lastSeen">Última vez</option>
+          </select>
+        </label>
+        <button type="button" class="btn-xs btn-cancel" @click="toggleCallerSortDir">{{ callerSortDir === 'asc' ? '▲ Ascendente' : '▼ Descendente' }}</button>
+      </div>
+
       <!-- Devices table -->
-      <div v-if="callers.length > 0" class="table-wrap">
-        <table>
+      <div v-if="callers.length > 0" class="table-wrap callers-wrap">
+        <table class="callers-table">
           <thead>
             <tr>
               <th>#</th>
-              <th>ID dispositivo</th>
-              <th>MAC</th>
-              <th>Nombre</th>
-              <th>Ubicación</th>
-              <th>Red</th>
-              <th>Firmware</th>
-              <th>Estado</th>
-              <th>Última vez</th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'deviceId' }" @click="toggleCallerSort('deviceId')">ID dispositivo<span class="sort-mark">{{ callerSortMark('deviceId') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'mac' }" @click="toggleCallerSort('mac')">MAC<span class="sort-mark">{{ callerSortMark('mac') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'name' }" @click="toggleCallerSort('name')">Nombre<span class="sort-mark">{{ callerSortMark('name') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'location' }" @click="toggleCallerSort('location')">Ubicación<span class="sort-mark">{{ callerSortMark('location') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'transport' }" @click="toggleCallerSort('transport')">Red<span class="sort-mark">{{ callerSortMark('transport') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'firmware' }" @click="toggleCallerSort('firmware')">Firmware<span class="sort-mark">{{ callerSortMark('firmware') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'status' }" @click="toggleCallerSort('status')">Estado<span class="sort-mark">{{ callerSortMark('status') }}</span></button></th>
+              <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'lastSeen' }" @click="toggleCallerSort('lastSeen')">Última vez<span class="sort-mark">{{ callerSortMark('lastSeen') }}</span></button></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(d, i) in callers" :key="d.deviceId">
-              <td class="mono">{{ i + 1 }}</td>
-              <td class="mono">{{ d.deviceId }}</td>
-              <td class="mono">{{ d.mac || '—' }}</td>
-              <td>
+            <tr v-for="(d, i) in sortedCallers" :key="d.deviceId">
+              <td class="mono" data-label="#">{{ i + 1 }}</td>
+              <td class="mono" data-label="ID dispositivo">{{ d.deviceId }}</td>
+              <td class="mono" data-label="MAC">{{ d.mac || '—' }}</td>
+              <td data-label="Nombre">
                 <div v-if="editingId === d.deviceId" class="edit-row">
                   <input
                     class="edit-input"
@@ -690,7 +788,7 @@
                   {{ d.name || d.deviceId.slice(-6) }}
                 </span>
               </td>
-              <td>
+              <td data-label="Ubicación">
                 <div class="loc-select-wrapper">
                   <span class="loc-icon" :class="getLocationIcon(d.callerLocationType)" v-html="locationIconSvg(d.callerLocationType)"></span>
                   <select class="loc-select" v-model="d.callerLocationType" @change="saveLocationType(d)">
@@ -700,15 +798,15 @@
                   </select>
                 </div>
               </td>
-              <td class="mono">{{ d.transport === 'lora' ? 'LORA' : d.transport === 'espnow' ? 'NOW' : '—' }}</td>
-              <td class="mono">{{ d.firmwareVersion || '—' }}</td>
-              <td>
+              <td class="mono" data-label="Red">{{ d.transport === 'lora' ? 'LORA' : d.transport === 'espnow' ? 'NOW' : '—' }}</td>
+              <td class="mono" data-label="Firmware">{{ d.firmwareVersion || '—' }}</td>
+              <td data-label="Estado">
                 <span class="status" :class="isOnline(d) ? 'online' : 'offline'">
                   {{ isOnline(d) ? 'Online' : 'Offline' }}
                 </span>
               </td>
-              <td class="mono">{{ d.lastSeenMs ? formatLastSeen(d.lastSeenMs) : '—' }}</td>
-              <td style="display:flex; gap:4px; align-items:center;">
+              <td class="mono" data-label="Última vez">{{ d.lastSeenMs ? formatLastSeen(d.lastSeenMs) : '—' }}</td>
+              <td class="row-actions">
                 <button
                   v-if="editingId !== d.deviceId"
                   class="btn-xs btn-edit"
@@ -1024,7 +1122,6 @@
       <div class="cfg-header">
         <div>
           <h2>Configuración de sede</h2>
-          <p>Tiempo de atención, audio y pantalla de sala. Se guarda en el servidor local.</p>
         </div>
         <a class="btn-xs btn-open-screen" href="/location.html" target="_blank" rel="noopener">Abrir pantalla</a>
       </div>
@@ -1039,7 +1136,6 @@
 
       <section v-show="settingsTab === 'time'" class="cfg-card">
         <h3>Tiempo de atención</h3>
-        <p class="desc">Tiempo máximo esperado para atender un llamado. Se usa en el historial para marcar a tiempo.</p>
         <div class="settings-grid">
           <div class="field">
             <label>Tiempo base (minutos)</label>
@@ -1052,7 +1148,6 @@
             <input type="text" class="full" v-model="locationSettings.name" placeholder="Ej. Clínica Central - Piso 3">
           </div>
         </div>
-        <div class="cfg-info">Los llamados que excedan {{ locationSettings.attentionTimeMin || 5 }} minutos se marcarán como no atendidos a tiempo en el historial.</div>
         <div class="modal-actions">
           <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar</button>
           <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
@@ -1061,7 +1156,6 @@
 
       <section v-show="settingsTab === 'audio'" class="cfg-card">
         <h3>Audio y voz</h3>
-        <p class="desc">Sonidos para llamados normales y emergencias, volumen y anuncios por voz.</p>
         <div class="cfg-grid-2">
           <div class="cfg-subcard">
             <h4>Llamados normales</h4>
@@ -1103,7 +1197,6 @@
 
       <section v-show="settingsTab === 'reminders'" class="cfg-card">
         <h3>Recordatorio de pendientes</h3>
-        <p class="desc">Aviso automático en la pantalla de sala mientras haya llamados sin finalizar.</p>
         <div class="settings-grid">
           <label class="toggle"><input type="checkbox" v-model="locationSettings.pendingReminderEnabled"> Recordatorio habilitado</label>
           <div class="field">
@@ -1120,7 +1213,6 @@
             </select>
           </div>
         </div>
-        <div class="cfg-info">Mientras haya al menos un llamado activo, la pantalla dirá por voz "hay llamados pendientes por finalizar" o reproducirá el sonido de alerta, cada {{ reminderIntervalLabel }}.</div>
         <div class="modal-actions">
           <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar</button>
           <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
@@ -1129,16 +1221,62 @@
 
       <section v-show="settingsTab === 'screen'" class="cfg-card">
         <h3>Pantalla de sala</h3>
-        <p class="desc">Colores de la pantalla visible en la sala.</p>
         <div class="settings-grid">
           <div class="field"><label>Color de fondo</label><input type="color" v-model="locationSettings.backgroundColor"></div>
           <div class="field"><label>Color de encabezado</label><input type="color" v-model="locationSettings.headerColor"></div>
-          <div class="field"><label>Color de texto</label><input type="color" v-model="locationSettings.textColor"></div>
+          <div class="field"><label>Color del texto de nombres</label><input type="color" v-model="locationSettings.textColor"></div>
           <div class="field"><label>Color llamado normal</label><input type="color" v-model="locationSettings.normalCallColor"></div>
           <div class="field"><label>Color de emergencia</label><input type="color" v-model="locationSettings.emergencyCallColor"></div>
           <div class="field"><label>Color del cronómetro</label><input type="color" v-model="locationSettings.timerColor"></div>
+          <div class="field">
+            <label>Tamaño de la pantalla</label>
+            <div class="scale-control">
+              <button class="btn-xs scale-btn" type="button" @click="bumpUiScale(-10)" :disabled="locationSettings.uiScalePercent <= 50">&minus;</button>
+              <span class="scale-value">{{ locationSettings.uiScalePercent }}%</span>
+              <button class="btn-xs scale-btn" type="button" @click="bumpUiScale(10)" :disabled="locationSettings.uiScalePercent >= 200">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="preview-block">
+          <div class="preview-head">
+            <span>Vista previa en miniatura</span>
+            <div class="preview-toggle">
+              <button type="button" class="btn-xs" :class="{ active: !previewShowEmpty }" @click="previewShowEmpty = false">Con llamados</button>
+              <button type="button" class="btn-xs" :class="{ active: previewShowEmpty }" @click="previewShowEmpty = true">Vac&iacute;o</button>
+            </div>
+          </div>
+          <div class="screen-preview-wrap" ref="previewEl">
+            <div class="msx" :style="[previewVars, previewStyle]">
+              <div class="msx-header">
+                <div class="llamando">LLAMANDO DESDE</div>
+                <div class="llam">LLAM</div>
+                <div class="tiempo">TIEMPO</div>
+              </div>
+              <div class="msx-calls">
+                <template v-if="!previewShowEmpty && previewVisibleCalls.length">
+                  <div v-for="call in previewVisibleCalls" :key="call.id" class="msx-row" :class="{ emergency: call.emergency }">
+                    <div class="llamando">
+                      <span class="msx-icon" v-html="locationIconSvg(call.locationType)"></span>
+                      <span class="msx-text"><span class="msx-name">{{ call.name }}</span></span>
+                    </div>
+                    <div class="llam">{{ call.cons }}</div>
+                    <div class="tiempo">{{ call.time }}</div>
+                  </div>
+                </template>
+                <div v-else class="msx-empty">
+                  <div class="big-icon"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#f59e0b"/><path d="M20 33l8 8 16-17" stroke="#111111" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                  <h2>No hay llamados activos</h2>
+                </div>
+              </div>
+              <div class="msx-footer">
+                <div class="msx-location">{{ locationSettings.name || 'Sede sin nombre' }}<span v-if="!previewShowEmpty && previewCalls.length > previewCapacity"> - Mostrando {{ previewVisibleCalls.length }} de {{ previewCalls.length }}</span></div>
+                <div class="msx-time">{{ formatTime(now) }}</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
+          <button class="btn-xs btn-cancel btn-reset" @click="resetLocationSettings">Restablecer valores</button>
           <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar</button>
           <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
         </div>
@@ -1254,7 +1392,6 @@
       <div class="info-hero">
         <div>
           <h2>Información del sistema</h2>
-          <p>Estado, versión y diagnóstico de red de Clinum</p>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem">
           <span class="info-pill" :class="{ off: networkDiagnostics && !networkDiagnostics.serialAvailable }">
@@ -1454,11 +1591,17 @@ createApp({
     const assignDevice = ref(null);
     const selectedLampIds = ref([]);
     const locationSettings = ref({
-      name: '', attentionTimeMin: 5, pendingReminderEnabled: false, pendingReminderIntervalS: 120, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
-      normalCallColor: '#0ea5e9', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
+      name: '', attentionTimeMin: 5, pendingReminderEnabled: false, pendingReminderIntervalS: 120, uiScalePercent: 100, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      normalCallColor: '#22c55e', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
       soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
       voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
     });
+    const DEFAULT_LOCATION_SETTINGS = {
+      name: 'Sede principal', attentionTimeMin: 5, pendingReminderEnabled: false, pendingReminderIntervalS: 120, uiScalePercent: 100, backgroundColor: '#0f172a', headerColor: '#f59e0b', textColor: '#ffffff',
+      normalCallColor: '#22c55e', emergencyCallColor: '#ef4444', timerColor: '#22c55e',
+      soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
+      voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
+    };
     const soundFiles = ['clinum_normal.mp3','clinum_emergency.mp3','alert.mp3','bell.mp3','chime.mp3','ding.mp3','discordcall.mp3','emergency-loop.mp3'];
     const settingsSavedAt = ref(0);
     const gatewayStatus = ref(null);
@@ -1476,6 +1619,8 @@ createApp({
     const editLampName = ref('');
     const endingId = ref(null);
     const now = ref(Date.now());
+    const callerSortKey = ref('');
+    const callerSortDir = ref('asc');
 
     // ── Version del sistema ──
     const systemInfo = ref(null);
@@ -1686,6 +1831,49 @@ createApp({
     const capacitiveCallers = computed(() => callers.value.filter(d => !isTactile(d)));
     const onlineCount = computed(() =>
       callers.value.filter(d => isOnline(d)).length
+    );
+    const callerLocationLabel = (t) => (t === 'sillon' ? 'Sillón' : t === 'bano' ? 'Baño' : 'Cama');
+    const callerSortValue = (d, key) => {
+      switch (key) {
+        case 'deviceId': return d.deviceId || '';
+        case 'mac': return d.mac || '';
+        case 'name': return d.name || d.deviceId.slice(-6);
+        case 'location': return callerLocationLabel(d.callerLocationType);
+        case 'transport': return d.transport === 'lora' ? 'LORA' : d.transport === 'espnow' ? 'NOW' : '';
+        case 'firmware': return d.firmwareVersion || '';
+        case 'status': return isOnline(d) ? 1 : 0;
+        case 'lastSeen': return d.lastSeenMs || 0;
+        default: return '';
+      }
+    };
+    const sortedCallers = computed(() => {
+      const key = callerSortKey.value;
+      if (!key) return callers.value;
+      const dir = callerSortDir.value === 'desc' ? -1 : 1;
+      return [...callers.value].sort((a, b) => {
+        const va = callerSortValue(a, key);
+        const vb = callerSortValue(b, key);
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+        return String(va).localeCompare(String(vb), 'es', { numeric: true, sensitivity: 'base' }) * dir;
+      });
+    });
+    const toggleCallerSort = (key) => {
+      if (callerSortKey.value === key) {
+        callerSortDir.value = callerSortDir.value === 'asc' ? 'desc' : 'asc';
+      } else {
+        callerSortKey.value = key;
+        callerSortDir.value = 'asc';
+      }
+    };
+    const toggleCallerSortDir = () => {
+      callerSortDir.value = callerSortDir.value === 'asc' ? 'desc' : 'asc';
+    };
+    const setCallerSortKey = (key) => {
+      callerSortKey.value = key;
+      callerSortDir.value = 'asc';
+    };
+    const callerSortMark = (key) => (
+      callerSortKey.value !== key ? '↕' : (callerSortDir.value === 'asc' ? '▲' : '▼')
     );
     const onlineRepeaterCount = computed(() =>
       repeaters.value.filter(d => isOnline(d)).length
@@ -1898,7 +2086,7 @@ createApp({
 
     // Mismos iconos que el server web de referencia (Iconify, vendorizados sin CDN):
     // cama = mdi:bed, sillon = material-symbols:airline-seat-recline-extra,
-    // bano = healthicons:letrina-alt (espejado como en la referencia).
+    // bano = healthicons:letrina-alt.
     const LOCATION_ICONS = {
       cama: { viewBox: '0 0 24 24', body: '<path fill="currentColor" d="M19 7h-8v7H3V5H1v15h2v-3h18v3h2v-9a4 4 0 0 0-4-4M7 13a3 3 0 0 0 3-3a3 3 0 0 0-3-3a3 3 0 0 0-3 3a3 3 0 0 0 3 3"/>' },
       sillon: { viewBox: '0 0 24 24', body: '<path fill="currentColor" d="M8.5 6q-.825 0-1.412-.587T6.5 4t.588-1.412T8.5 2t1.413.588T10.5 4t-.587 1.413T8.5 6M14 20H7.55q-.825 0-1.512-.587T5.175 18L3 7h2.05l2.2 11H14zm5.5 2l-2.9-5H9.65q-.725 0-1.263-.437T7.7 15.4l-1.1-5.35q-.275-1.2.563-2.125T9.2 7q.875 0 1.588.525T11.7 8.95L12.8 14h3.25q.525 0 .975.275t.725.725l3.5 6z"/>' },
@@ -2018,8 +2206,58 @@ createApp({
       await fetch(`/lamp-alert-profiles/${profile.callType}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) });
     };
 
+    const bumpUiScale = (delta) => {
+      const current = Number(locationSettings.value.uiScalePercent) || 100;
+      locationSettings.value.uiScalePercent = Math.max(50, Math.min(200, current + delta));
+    };
+
+    const previewEl = ref(null);
+    const previewShowEmpty = ref(false);
+    const previewWidth = ref(560);
+    const previewCalls = [
+      { id: 'p1', name: 'Cama 101', locationType: 'cama', cons: 1, time: '00:42', emergency: false },
+      { id: 'p2', name: 'Cama 102', locationType: 'cama', cons: 2, time: '01:15', emergency: true },
+      { id: 'p3', name: 'Sillon 103', locationType: 'sillon', cons: 1, time: '02:03', emergency: false },
+      { id: 'p4', name: 'Cama 104', locationType: 'cama', cons: 3, time: '00:18', emergency: false },
+      { id: 'p5', name: 'Bano 105', locationType: 'bano', cons: 1, time: '03:27', emergency: true },
+      { id: 'p6', name: 'Cama 106', locationType: 'cama', cons: 2, time: '01:50', emergency: false },
+    ];
+    const previewZoom = computed(() => {
+      const pct = Number(locationSettings.value.uiScalePercent) || 100;
+      return Math.max(50, Math.min(200, pct)) / 100;
+    });
+    const previewFit = computed(() => previewWidth.value / 1920);
+    const previewStyle = computed(() => ({
+      width: `${1920 / previewZoom.value}px`,
+      height: `${1080 / previewZoom.value}px`,
+      transform: `translate(-50%, -50%) scale(${previewFit.value * previewZoom.value})`,
+      transformOrigin: 'center center',
+    }));
+    const previewVars = computed(() => ({
+      '--bg-color': locationSettings.value.backgroundColor,
+      '--header-color': locationSettings.value.headerColor,
+      '--text-color': locationSettings.value.textColor,
+      '--normal-call-color': locationSettings.value.normalCallColor,
+      '--emergency-call-color': locationSettings.value.emergencyCallColor,
+      '--timer-color': locationSettings.value.timerColor,
+    }));
+    const previewCapacity = computed(() => {
+      const layoutHeight = 1080 / previewZoom.value;
+      return Math.max(1, Math.min(7, Math.floor((layoutHeight - 126) / 72)));
+    });
+    const previewVisibleCalls = computed(() => previewCalls.slice(0, previewCapacity.value));
+    let previewObserver = null;
+
     const saveLocationSettings = async () => {
       const response = await fetch('/location-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(locationSettings.value) }).then(r => r.json());
+      locationSettings.value = response;
+      settingsSavedAt.value = Date.now();
+      setTimeout(() => { settingsSavedAt.value = 0; }, 2500);
+    };
+
+    const resetLocationSettings = async () => {
+      if (!confirm('¿Restablecer TODA la configuración de la sede a los valores por defecto?\n\nSe cambiarán el nombre de la sede, el tiempo de atención, el audio, los recordatorios, los colores y el tamaño de la pantalla.')) return;
+      const response = await fetch('/location-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(DEFAULT_LOCATION_SETTINGS) }).then(r => r.json());
       locationSettings.value = response;
       settingsSavedAt.value = Date.now();
       setTimeout(() => { settingsSavedAt.value = 0; }, 2500);
@@ -2096,8 +2334,19 @@ createApp({
       load(); loadReports(); loadSystemInfo(); loadNetworkDiagnostics();
       clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
       diagnosticsTimer = setInterval(() => { if (tab.value === 'info') loadNetworkDiagnostics(); }, 2000);
+      if (previewEl.value) {
+        previewWidth.value = previewEl.value.clientWidth || previewWidth.value;
+        previewObserver = new ResizeObserver((entries) => {
+          const width = entries[0]?.contentRect?.width || 0;
+          if (width > 0) previewWidth.value = width;
+        });
+        previewObserver.observe(previewEl.value);
+      }
     });
-    onUnmounted(() => { clearInterval(clockTimer); clearInterval(diagnosticsTimer); socket.disconnect(); });
+    onUnmounted(() => {
+      clearInterval(clockTimer); clearInterval(diagnosticsTimer); socket.disconnect();
+      if (previewObserver) previewObserver.disconnect();
+    });
 
     return {
       networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics,
@@ -2107,7 +2356,8 @@ createApp({
       integrationSettings, integrationSavedAt, loadIntegrationSettings, saveIntegrationSettings,
       connected, activeCalls, monitorCalls, specialCalls, filteredSpecialCalls, sortedSpecialCalls, specialProfiles,
       SPECIAL_CALL_TYPES, specialFilter, specialLampIds, specialCountByType, specialTypeIcon,
-      devices, callers, tactileCallers, capacitiveCallers, repeaters, callHistory, lamps, alertProfiles, assignDevice, selectedLampIds, presetColors,
+      devices, callers, sortedCallers, callerSortKey, callerSortDir, toggleCallerSort, toggleCallerSortDir, setCallerSortKey, callerSortMark,
+      tactileCallers, capacitiveCallers, repeaters, callHistory, lamps, alertProfiles, assignDevice, selectedLampIds, presetColors,
       colorLabels, animationLabels, soundLabels, locationSettings, soundFiles, settingsSavedAt,
       gatewayStatus, gatewayConfig, gatewaySaving, gatewayMessage, gatewayStatusText, gatewayInfo, gatewayMacLabel, gatewayFirmwareLabel, gatewayModeLabel,
       editingId, editName, editingLampId, editLampName, endingId, now,
@@ -2118,7 +2368,8 @@ createApp({
       formatLastSeen, formatMs, formatTime, formatDateTime,
       startEdit, saveEdit, cancelEdit, deleteDevice, endCall, isEndingCall, saveLocationType, getLocationIcon, locationIconSvg,
       saveLamp, switchTransport, testLamp, startEditLamp, saveEditLamp, cancelEditLamp, deleteLamp,
-      openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, saveGatewayConfig,
+      openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, resetLocationSettings, bumpUiScale, saveGatewayConfig,
+      previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle,
     };
   }
 }).mount('#app');

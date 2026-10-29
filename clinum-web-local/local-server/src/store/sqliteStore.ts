@@ -159,7 +159,7 @@ export class SqliteStore {
         background_color      TEXT NOT NULL DEFAULT '#0f172a',
         header_color          TEXT NOT NULL DEFAULT '#f59e0b',
         text_color            TEXT NOT NULL DEFAULT '#ffffff',
-        normal_call_color     TEXT NOT NULL DEFAULT '#0ea5e9',
+        normal_call_color     TEXT NOT NULL DEFAULT '#22c55e',
         emergency_call_color  TEXT NOT NULL DEFAULT '#ef4444',
         timer_color           TEXT NOT NULL DEFAULT '#22c55e',
         sound_enabled         INTEGER NOT NULL DEFAULT 1,
@@ -171,7 +171,8 @@ export class SqliteStore {
         voice_pitch           REAL NOT NULL DEFAULT 1.0,
         voice_volume          REAL NOT NULL DEFAULT 0.9,
         pending_reminder_enabled INTEGER NOT NULL DEFAULT 0,
-        pending_reminder_interval_s INTEGER NOT NULL DEFAULT 120
+        pending_reminder_interval_s INTEGER NOT NULL DEFAULT 120,
+        ui_scale_percent INTEGER NOT NULL DEFAULT 100
       );
 
       CREATE INDEX IF NOT EXISTS idx_call_history_device ON call_history(device_id);
@@ -198,9 +199,20 @@ export class SqliteStore {
         value INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_receipts_received ON event_receipts(received_at_ms);
+
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        name          TEXT PRIMARY KEY,
+        applied_at_ms INTEGER NOT NULL DEFAULT 0
+      );
     `);
 
     this.db.prepare("INSERT OR IGNORE INTO location_settings (id) VALUES (1)").run();
+
+    const normalColorMigration = this.db.prepare("SELECT name FROM schema_migrations WHERE name = ?").get("normal_call_color_green") as { name: string } | undefined;
+    if (!normalColorMigration) {
+      this.db.prepare("UPDATE location_settings SET normal_call_color = '#22c55e' WHERE normal_call_color = '#0ea5e9'").run();
+      this.db.prepare("INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?, ?)").run("normal_call_color_green", Date.now());
+    }
 
     const insertProfile = this.db.prepare(`
       INSERT OR IGNORE INTO lamp_alert_profiles
@@ -250,6 +262,7 @@ export class SqliteStore {
     this._ensureColumn("location_settings", "attention_time_min", "INTEGER NOT NULL DEFAULT 5");
     this._ensureColumn("location_settings", "pending_reminder_enabled", "INTEGER NOT NULL DEFAULT 0");
     this._ensureColumn("location_settings", "pending_reminder_interval_s", "INTEGER NOT NULL DEFAULT 120");
+    this._ensureColumn("location_settings", "ui_scale_percent", "INTEGER NOT NULL DEFAULT 100");
     this._ensureColumn("call_history", "patient_name", "TEXT NOT NULL DEFAULT ''");
     this._ensureColumn("call_history", "finish_origin", "TEXT NOT NULL DEFAULT ''");
     this._ensureColumn("lamp_alert_profiles", "auto_end_s", "INTEGER NOT NULL DEFAULT 0");
@@ -811,6 +824,7 @@ export class SqliteStore {
       voiceVolume: row.voice_volume as number,
       pendingReminderEnabled: Boolean(row.pending_reminder_enabled ?? 0),
       pendingReminderIntervalS: Number(row.pending_reminder_interval_s ?? 120) || 120,
+      uiScalePercent: Number(row.ui_scale_percent ?? 100) || 100,
     };
   }
 
@@ -824,7 +838,7 @@ export class SqliteStore {
         normal_call_color = ?, emergency_call_color = ?, timer_color = ?,
         sound_enabled = ?, sound_volume = ?, alert_sound = ?, emergency_sound = ?,
         voice_enabled = ?, voice_rate = ?, voice_pitch = ?, voice_volume = ?,
-        pending_reminder_enabled = ?, pending_reminder_interval_s = ?
+        pending_reminder_enabled = ?, pending_reminder_interval_s = ?, ui_scale_percent = ?
       WHERE id = 1
     `).run(
       (values.name ?? current.name).trim() || current.name,
@@ -845,6 +859,7 @@ export class SqliteStore {
       clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume),
       (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0,
       clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 10, 900, 120),
+      clamp(values.uiScalePercent ?? current.uiScalePercent ?? 100, 50, 200, 100),
     );
     return this.getLocationSettings();
   }

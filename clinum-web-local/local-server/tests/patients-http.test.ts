@@ -25,7 +25,24 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const gatewayMacLabel/);
       assert.match(script, /const gatewayFirmwareLabel/);
       assert.match(script, /socket\.on\('device_presence'/);
+      assert.match(html, /scale-control/);
+      assert.match(script, /const bumpUiScale/);
+      assert.match(script, /uiScalePercent/);
+      assert.match(html, /screen-preview-wrap/);
+      assert.match(html, /Vista previa en miniatura/);
+      assert.match(script, /const previewCalls/);
+      assert.match(script, /const previewStyle/);
+      assert.match(script, /const resetLocationSettings/);
+      assert.match(script, /DEFAULT_LOCATION_SETTINGS/);
       assert.match(script, /T\?HLN\|T\?VLN/);
+    } else {
+      assert.match(script, /const screenTransform/);
+      assert.match(script, /BASE_WIDTH = 1920/);
+      assert.match(script, /BASE_HEIGHT = 1080/);
+      assert.match(script, /maxVisibleCalls/);
+      assert.match(script, /uiScalePercent/);
+      assert.match(html, /\.call-row \.call-text \{ color: var\(--text-color/);
+      assert.doesNotMatch(html, /mirror-icon/);
     }
     new Function(script);
     const start = html.indexOf('<div id="app"');
