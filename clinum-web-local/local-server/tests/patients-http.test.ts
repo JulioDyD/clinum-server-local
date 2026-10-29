@@ -35,6 +35,9 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const resetLocationSettings/);
       assert.match(script, /DEFAULT_LOCATION_SETTINGS/);
       assert.match(script, /T\?HLN\|T\?VLN/);
+      assert.match(html, /Descartar comandos/);
+      assert.match(script, /const clearPendingCommands/);
+      assert.match(script, /network\/pending-commands/);
     } else {
       assert.match(script, /const screenTransform/);
       assert.match(script, /BASE_WIDTH = 1920/);
@@ -106,6 +109,19 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
     diagnostics = (await request("/network/diagnostics")).data;
     assert.ok(diagnostics.pendingCommands.some((c: any) => c.kind === "end" && c.payload.targetCallSeq === 1));
     assert.equal((await request("/calls/active")).data.items.length, 0);
+
+    const cleared = await request("/network/pending-commands", "DELETE");
+    assert.equal(cleared.status, 200);
+    assert.ok(cleared.data.cleared >= 2);
+    diagnostics = (await request("/network/diagnostics")).data;
+    assert.equal(diagnostics.pendingCommands.length, 0);
+
+    assert.equal((await request("/devices/CALLER000001", "PATCH", { name: "Cama dos" })).status, 200);
+    diagnostics = (await request("/network/diagnostics")).data;
+    assert.ok(diagnostics.pendingCommands.some((c: any) => c.kind === "name"));
+    assert.equal((await request("/devices/CALLER000001", "DELETE")).status, 200);
+    diagnostics = (await request("/network/diagnostics")).data;
+    assert.equal(diagnostics.pendingCommands.length, 0);
   } finally {
     const exited = new Promise(resolve => child.once("exit", resolve));
     if (child.exitCode === null) { child.kill(); await exited; }

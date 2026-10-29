@@ -1434,6 +1434,7 @@
         <section class="info-card">
           <div class="info-card-head">
             <h3>Diagnóstico de red</h3>
+            <button v-if="networkDiagnostics && networkDiagnostics.pendingCommands.length" class="btn-xs btn-delete" :disabled="clearingPendingCommands" @click="clearPendingCommands">Descartar comandos</button>
           </div>
           <p v-if="networkDiagnosticsError" role="alert">{{ networkDiagnosticsError }}</p>
           <template v-if="networkDiagnostics">
@@ -1535,12 +1536,23 @@ createApp({
     const settingsTab = ref('time');
     const networkDiagnostics = ref(null);
     const networkDiagnosticsError = ref('');
+    const clearingPendingCommands = ref(false);
     const loadNetworkDiagnostics = async () => {
       try {
         const response = await fetch('/network/diagnostics');
         if (!response.ok) throw new Error('No se pudo consultar la red');
         networkDiagnostics.value = await response.json(); networkDiagnosticsError.value = '';
       } catch (error) { networkDiagnosticsError.value = error.message; }
+    };
+    const clearPendingCommands = async () => {
+      if (!confirm('¿Descartar todos los comandos pendientes?\n\nLos llamadores que no confirmaron finalización o nombre dejarán de reintentarse.')) return;
+      clearingPendingCommands.value = true;
+      try {
+        const response = await fetch('/network/pending-commands', { method: 'DELETE' });
+        if (!response.ok) throw new Error('No se pudieron descartar los comandos');
+        await loadNetworkDiagnostics();
+      } catch (error) { networkDiagnosticsError.value = error.message; }
+      finally { clearingPendingCommands.value = false; }
     };
     const connected = ref(false);
     const activeCalls = ref([]);
@@ -2349,7 +2361,7 @@ createApp({
     });
 
     return {
-      networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics,
+      networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics, clearPendingCommands, clearingPendingCommands,
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
       patients, patientForm, patientSaving, patientError, patientMessage, assignedPatientName, openPatient, closePatient, savePatient, unassignPatient, removePatient, resendPatient,
       tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV,

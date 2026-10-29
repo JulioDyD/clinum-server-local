@@ -84,6 +84,10 @@ const lampRetryDelaysMs = [150, 250, 500, 1000, 2000];
 const pendingTransportCommands = new Map();
 const devicePresence = new Map();
 const pendingPatients = new Map();
+/** Tope de reintentos para no acumular comandos de dispositivos que ya no responden.
+ * Al agotarse se descartan; si el llamador vuelve, su heartbeat/register los re-arma. */
+const MAX_PENDING_END_ATTEMPTS = 20;
+const MAX_PENDING_NAME_ATTEMPTS = 20;
 function nextRemoteCommandSeq() {
     return store.nextCommandSeq();
 }
@@ -137,7 +141,19 @@ function retryDeviceNames() {
     if (!gateway.isAvailable())
         return;
     for (const command of store.getPendingCommands()) {
-        if (command.kind !== "name" || Date.now() - command.lastSentAtMs < 15000)
+        if (command.kind !== "name")
+            continue;
+        if (!store.getDevice(command.deviceId)) {
+            store.cancelPendingCommand(command.deviceId, "name");
+            app.log.info({ deviceId: command.deviceId }, "Dropped pending name for removed device");
+            continue;
+        }
+        if (command.attempts >= MAX_PENDING_NAME_ATTEMPTS) {
+            store.cancelPendingCommand(command.deviceId, "name");
+            app.log.info({ deviceId: command.deviceId, attempts: command.attempts }, "Dropped unconfirmed name command");
+            continue;
+        }
+        if (Date.now() - command.lastSentAtMs < 15000)
             continue;
         gateway.sendConfig({ msgType: "config_update", deviceId: command.deviceId, seq: command.seq, config: command.payload });
         store.markCommandSent(command.deviceId, "name");
@@ -287,6 +303,18 @@ function sendPendingEnd(command) {
 function retryPendingEndCommands() {
     const now = Date.now();
     for (const [deviceId, command] of pendingEndCommands) {
+        if (!store.getDevice(deviceId)) {
+            pendingEndCommands.delete(deviceId);
+            store.cancelPendingCommand(deviceId, "end");
+            app.log.info({ deviceId }, "Dropped pending end for removed device");
+            continue;
+        }
+        if (command.attempts >= MAX_PENDING_END_ATTEMPTS) {
+            pendingEndCommands.delete(deviceId);
+            store.cancelPendingCommand(deviceId, "end");
+            app.log.info({ deviceId, attempts: command.attempts }, "Dropped unconfirmed end command");
+            continue;
+        }
         const interval = command.attempts < 3 ? 2000 : command.attempts < 10 ? 5000 : 30000;
         if (now - command.lastSentAtMs >= interval && gateway.isAvailable())
             sendPendingEnd(command);
@@ -698,6 +726,11 @@ app.get("/health", async () => ({
 }));
 app.get("/network/diagnostics", async () => ({ counters: store.getReliabilityCounters(),
     pendingCommands: store.getPendingCommands(), pendingPatients: pendingPatients.size, serialAvailable: gateway.isAvailable(), gateway: gatewayControlState }));
+app.delete("/network/pending-commands", async () => {
+    const cleared = store.clearPendingCommands();
+    pendingEndCommands.clear();
+    return { ok: true, cleared };
+});
 app.get("/gateway/status", async () => gatewayControlState);
 app.put("/gateway/config", async (req, reply) => {
     const requested = req.body;
@@ -870,7 +903,12 @@ app.delete("/devices/:id", async (req, reply) => {
     const deleted = store.deleteDevice(id);
     if (!deleted)
         return reply.status(404).send({ error: "Device not found" });
+    pendingEndCommands.delete(id);
+    pendingTransportCommands.delete(id);
+    confirmedEndCalls.delete(id);
+    devicePresenceSentAt.delete(id);
     syncPatient(id);
+    pendingPatients.delete(id);
     hub.publishDeviceList(store.getDevices());
     hub.publishActiveCalls(store.getActiveCalls());
     hub.publishPatientList(store.getPatients());
@@ -1050,9 +1088,24 @@ async function bootstrap() {
     await gateway.open();
     gateway.requestGatewayStatus();
     for (const saved of store.getPendingCommands()) {
-        if (saved.kind === "end")
+        if (!store.getDevice(saved.deviceId)) {
+            store.cancelPendingCommand(saved.deviceId, saved.kind);
+            app.log.info({ deviceId: saved.deviceId, kind: saved.kind }, "Dropped pending command for removed device");
+            continue;
+        }
+        if (saved.kind === "end") {
+            if (saved.attempts >= MAX_PENDING_END_ATTEMPTS) {
+                store.cancelPendingCommand(saved.deviceId, "end");
+                app.log.info({ deviceId: saved.deviceId, attempts: saved.attempts }, "Dropped unconfirmed end command");
+                continue;
+            }
             pendingEndCommands.set(saved.deviceId, { deviceId: saved.deviceId,
                 commandSeq: saved.seq, targetCallSeq: Number(saved.payload.targetCallSeq), attempts: 0, lastSentAtMs: 0 });
+        }
+        else if (saved.kind === "name" && saved.attempts >= MAX_PENDING_NAME_ATTEMPTS) {
+            store.cancelPendingCommand(saved.deviceId, "name");
+            app.log.info({ deviceId: saved.deviceId, attempts: saved.attempts }, "Dropped unconfirmed name command");
+        }
     }
     for (const device of store.getDevices()) {
         if (store.getPatientByDevice(device.deviceId) || isTactileFirmware(device.firmwareVersion))

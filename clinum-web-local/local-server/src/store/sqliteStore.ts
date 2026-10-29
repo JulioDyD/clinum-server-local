@@ -477,6 +477,10 @@ export class SqliteStore {
     this.db.prepare("UPDATE pending_commands SET attempts=attempts+1,last_sent_at_ms=? WHERE device_id=? AND kind=?").run(Date.now(), deviceId, kind);
   }
 
+  public clearPendingCommands(): number {
+    return this.db.prepare("DELETE FROM pending_commands").run().changes;
+  }
+
   public transaction<T>(work: () => T): T { return this.db.transaction(work)(); }
 
   public isDuplicateOrOld(deviceId: string, seq: number): boolean {
@@ -583,6 +587,7 @@ export class SqliteStore {
       this.db.prepare("DELETE FROM active_special_calls WHERE device_id = ?").run(deviceId);
       this.db.prepare("DELETE FROM seq_tracker   WHERE device_id = ?").run(deviceId);
       this.db.prepare("DELETE FROM event_receipts WHERE device_id = ?").run(deviceId);
+      this.db.prepare("DELETE FROM pending_commands WHERE device_id = ?").run(deviceId);
       return this.db.prepare("DELETE FROM devices WHERE device_id = ?").run(deviceId);
     })();
     return (result as Database.RunResult).changes > 0;
