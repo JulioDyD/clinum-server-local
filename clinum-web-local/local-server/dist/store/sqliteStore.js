@@ -731,7 +731,7 @@ export class SqliteStore {
         voice_enabled = ?, voice_rate = ?, voice_pitch = ?, voice_volume = ?,
         pending_reminder_enabled = ?, pending_reminder_interval_s = ?
       WHERE id = 1
-    `).run((values.name ?? current.name).trim() || current.name, clamp(values.attentionTimeMin ?? current.attentionTimeMin ?? 5, 1, 10, 5), values.backgroundColor ?? current.backgroundColor, values.headerColor ?? current.headerColor, values.textColor ?? current.textColor, values.normalCallColor ?? current.normalCallColor, values.emergencyCallColor ?? current.emergencyCallColor, values.timerColor ?? current.timerColor, (values.soundEnabled ?? current.soundEnabled) ? 1 : 0, clamp(values.soundVolume ?? current.soundVolume, 0, 100, current.soundVolume), values.alertSound ?? current.alertSound, values.emergencySound ?? current.emergencySound, (values.voiceEnabled ?? current.voiceEnabled) ? 1 : 0, clamp(values.voiceRate ?? current.voiceRate, 0.5, 2, current.voiceRate), clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch), clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume), (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0, clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 30, 900, 120));
+    `).run((values.name ?? current.name).trim() || current.name, clamp(values.attentionTimeMin ?? current.attentionTimeMin ?? 5, 1, 10, 5), values.backgroundColor ?? current.backgroundColor, values.headerColor ?? current.headerColor, values.textColor ?? current.textColor, values.normalCallColor ?? current.normalCallColor, values.emergencyCallColor ?? current.emergencyCallColor, values.timerColor ?? current.timerColor, (values.soundEnabled ?? current.soundEnabled) ? 1 : 0, clamp(values.soundVolume ?? current.soundVolume, 0, 100, current.soundVolume), values.alertSound ?? current.alertSound, values.emergencySound ?? current.emergencySound, (values.voiceEnabled ?? current.voiceEnabled) ? 1 : 0, clamp(values.voiceRate ?? current.voiceRate, 0.5, 2, current.voiceRate), clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch), clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume), (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0, clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 10, 900, 120));
         return this.getLocationSettings();
     }
     // ── Calls ─────────────────────────────────────────────────────────────────
@@ -1063,6 +1063,22 @@ export class SqliteStore {
     }
     // ── Utilidades ────────────────────────────────────────────────────────────
     /** Marca todos los dispositivos offline (útil al arrancar) */
+    sweepOfflineDevices(timeoutMs, nowMs = Date.now()) {
+        const cutoff = nowMs - timeoutMs;
+        const stale = this.db.prepare("SELECT device_id FROM devices WHERE online = 1 AND last_seen_ms < ?").all(cutoff);
+        if (stale.length === 0)
+            return [];
+        this.db.prepare("UPDATE devices SET online = 0 WHERE online = 1 AND last_seen_ms < ?").run(cutoff);
+        return stale.map(row => row.device_id);
+    }
+    sweepOfflineLamps(timeoutMs, nowMs = Date.now()) {
+        const cutoff = nowMs - timeoutMs;
+        const stale = this.db.prepare("SELECT lamp_id FROM lamps WHERE online = 1 AND last_seen_ms < ?").all(cutoff);
+        if (stale.length === 0)
+            return [];
+        this.db.prepare("UPDATE lamps SET online = 0 WHERE online = 1 AND last_seen_ms < ?").run(cutoff);
+        return stale.map(row => row.lamp_id);
+    }
     markAllOffline() {
         this.db.prepare("UPDATE devices SET online = 0").run();
         this.db.prepare("UPDATE lamps SET online = 0").run();

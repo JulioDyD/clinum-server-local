@@ -65,7 +65,7 @@ export type LocationSettings = {
   voiceVolume: number;
   /** Aviso automático en pantalla mientras haya llamados sin finalizar */
   pendingReminderEnabled: boolean;
-  /** Cada cuántos segundos se repite el aviso (30–900) */
+  /** Cada cuántos segundos se repite el aviso (10–900) */
   pendingReminderIntervalS: number;
 };
 
@@ -111,7 +111,7 @@ export type DeviceRecord = {
   callerLocationType: "cama" | "sillon" | "bano";
   /** Red por la que se registro: "espnow" (NOW) o "lora" (LORA) */
   transport?: "espnow" | "lora";
-  /** Version de firmware reportada en el REGISTER (ej. "VLN-7.9.2") */
+  /** Version de firmware reportada en el REGISTER (ej. "TVLN-11.1" o "CLN-11.1") */
   firmwareVersion?: string;
 };
 
@@ -267,13 +267,17 @@ export type GatewaySiteConfig = {
 };
 
 export type GatewayControlFrame =
-  | { msgType: "gateway_config_required"; protocolVersion: number }
+  | { msgType: "gateway_config_required"; protocolVersion: number; mac?: string; firmwareVersion?: string }
   | { msgType: "gateway_config_ack"; result: "stored" | "invalid"; gatewayId?: string }
   | {
       msgType: "gateway_status";
       provisioned: boolean;
       siteId: string;
       gatewayId: string;
+      /** MAC del gateway en formato AA:BB:CC:DD:EE:FF (firmware nuevo). */
+      mac?: string;
+      /** Versión de firmware reportada por el gateway. */
+      firmwareVersion?: string;
       opMode?: string;
       serverOnline?: boolean;
       peerServer?: string;

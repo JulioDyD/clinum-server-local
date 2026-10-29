@@ -15,8 +15,17 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
     assert.ok(script);
     if (file === "index.html") {
       assert.match(html, /v-show="tab === 'patients'"/);
+      assert.match(html, /info-pill-mac/);
+      assert.match(html, /<option :value="10">10 segundos<\/option>/);
+      assert.match(html, /<option :value="20">20 segundos<\/option>/);
+      assert.match(html, /Firmware <strong class="info-mono">/);
       assert.match(script, /socket\.on\('patient_list'/);
       assert.match(script, /const patientRequest/);
+      assert.match(script, /const gatewayInfo/);
+      assert.match(script, /const gatewayMacLabel/);
+      assert.match(script, /const gatewayFirmwareLabel/);
+      assert.match(script, /socket\.on\('device_presence'/);
+      assert.match(script, /T\?HLN\|T\?VLN/);
     }
     new Function(script);
     const start = html.indexOf('<div id="app"');

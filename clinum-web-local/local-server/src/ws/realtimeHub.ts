@@ -43,6 +43,10 @@ export class RealtimeHub {
     this.io.emit("device_list", devices);
   }
 
+  public publishDevicePresence(deviceId: string, lastSeenMs: number, online: boolean): void {
+    this.io.emit("device_presence", { deviceId, lastSeenMs, online });
+  }
+
   public publishCallHistory(records: CallHistoryRecord[]): void {
     this.io.emit("call_history", records);
   }

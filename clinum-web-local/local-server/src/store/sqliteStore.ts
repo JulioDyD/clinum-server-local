@@ -844,7 +844,7 @@ export class SqliteStore {
       clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch),
       clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume),
       (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0,
-      clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 30, 900, 120),
+      clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 10, 900, 120),
     );
     return this.getLocationSettings();
   }
@@ -1216,6 +1216,30 @@ export class SqliteStore {
   // ── Utilidades ────────────────────────────────────────────────────────────
 
   /** Marca todos los dispositivos offline (útil al arrancar) */
+  public sweepOfflineDevices(timeoutMs: number, nowMs: number = Date.now()): string[] {
+    const cutoff = nowMs - timeoutMs;
+    const stale = this.db.prepare(
+      "SELECT device_id FROM devices WHERE online = 1 AND last_seen_ms < ?"
+    ).all(cutoff) as Array<{ device_id: string }>;
+    if (stale.length === 0) return [];
+    this.db.prepare(
+      "UPDATE devices SET online = 0 WHERE online = 1 AND last_seen_ms < ?"
+    ).run(cutoff);
+    return stale.map(row => row.device_id);
+  }
+
+  public sweepOfflineLamps(timeoutMs: number, nowMs: number = Date.now()): string[] {
+    const cutoff = nowMs - timeoutMs;
+    const stale = this.db.prepare(
+      "SELECT lamp_id FROM lamps WHERE online = 1 AND last_seen_ms < ?"
+    ).all(cutoff) as Array<{ lamp_id: string }>;
+    if (stale.length === 0) return [];
+    this.db.prepare(
+      "UPDATE lamps SET online = 0 WHERE online = 1 AND last_seen_ms < ?"
+    ).run(cutoff);
+    return stale.map(row => row.lamp_id);
+  }
+
   public markAllOffline(): void {
     this.db.prepare("UPDATE devices SET online = 0").run();
     this.db.prepare("UPDATE lamps SET online = 0").run();

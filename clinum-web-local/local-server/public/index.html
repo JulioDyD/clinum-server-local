@@ -433,13 +433,17 @@
     .info-hero h2 { margin: 0; font-size: 1.25rem; color: #fff; }
     .info-hero p { margin: 0.25rem 0 0; color: #e0e7ff; font-size: 0.85rem; }
     .info-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(15,23,42,.65); border: 1px solid rgba(255,255,255,.25); color: #fff; border-radius: 999px; padding: 0.35rem 0.8rem; font-size: 0.78rem; white-space: nowrap; }
-    .info-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .info-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; flex-shrink: 0; }
     .info-pill.off .dot { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .info-pill-text { display: flex; flex-direction: column; line-height: 1.15; }
+    .info-pill-mac { margin-top: 0.12rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.68rem; letter-spacing: 0.04em; color: #cbd5e1; }
     .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
     .info-card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 1.25rem; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
     .info-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.9rem; }
     .info-card-head h3 { margin: 0; font-size: 1.02rem; color: #f8fafc; display: flex; align-items: center; gap: 0.5rem; }
     .info-version { font-size: 0.92rem; font-weight: 700; color: #e2e8f0; letter-spacing: 0; }
+    .info-subhead { margin: 1rem 0 0.55rem; padding-top: 0.85rem; border-top: 1px solid #334155; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; }
+    .info-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.78rem; letter-spacing: 0.03em; }
     .info-refresh { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(15,23,42,.65); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
     .info-refresh:hover { border-color: #fff; transform: rotate(40deg); }
     .cfg-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
@@ -526,7 +530,7 @@
     <button class="nav-btn" :class="{ active: tab === 'specials' }" @click="tab = 'specials'; menuOpen = false">Especiales</button>
     <button class="nav-btn" :class="{ active: tab === 'reports' }" @click="tab = 'reports'; menuOpen = false">Reportes</button>
     <button class="nav-btn" :class="{ active: tab === 'settings' }" @click="tab = 'settings'; menuOpen = false">Configuración</button>
-    <button class="nav-btn" :class="{ active: tab === 'info' }" @click="tab = 'info'; menuOpen = false">Información</button>
+    <button class="nav-btn" :class="{ active: tab === 'info' }" @click="tab = 'info'; menuOpen = false; loadSystemInfo(); loadNetworkDiagnostics();">Información</button>
     </div>
   </nav>
 
@@ -1105,6 +1109,8 @@
           <div class="field">
             <label>Repetir cada</label>
             <select v-model.number="locationSettings.pendingReminderIntervalS">
+              <option :value="10">10 segundos</option>
+              <option :value="20">20 segundos</option>
               <option :value="30">30 segundos</option>
               <option :value="60">1 minuto</option>
               <option :value="120">2 minutos</option>
@@ -1253,7 +1259,10 @@
         <div style="display:flex;align-items:center;gap:0.5rem">
           <span class="info-pill" :class="{ off: networkDiagnostics && !networkDiagnostics.serialAvailable }">
             <span class="dot"></span>
-            {{ networkDiagnostics ? (networkDiagnostics.serialAvailable ? 'Gateway conectado' : 'Gateway desconectado') : 'Verificando…' }}
+            <span class="info-pill-text">
+              <span>{{ networkDiagnostics ? (networkDiagnostics.serialAvailable ? 'Gateway conectado' : 'Gateway desconectado') : 'Verificando…' }}</span>
+              <span v-if="gatewayMacLabel" class="info-pill-mac">{{ gatewayMacLabel }}</span>
+            </span>
           </span>
           <button class="info-refresh" @click="loadSystemInfo(); loadNetworkDiagnostics();" title="Actualizar información">↻</button>
         </div>
@@ -1274,6 +1283,15 @@
             </div>
           </template>
           <p v-else-if="!systemInfoError">Cargando versión…</p>
+          <div class="info-subhead">Gateway</div>
+          <div v-if="gatewayInfo" class="info-meta">
+            <div class="info-row"><span>ID <strong>{{ gatewayInfo.gatewayId || '—' }}</strong></span></div>
+            <div class="info-row"><span>Sede <strong>{{ gatewayInfo.siteId || '—' }}</strong></span></div>
+            <div class="info-row"><span>MAC <strong class="info-mono">{{ gatewayMacLabel || '—' }}</strong></span></div>
+            <div class="info-row"><span>Firmware <strong class="info-mono">{{ gatewayFirmwareLabel }}</strong></span></div>
+            <div class="info-row"><span>Modo <strong>{{ gatewayModeLabel }}</strong></span></div>
+          </div>
+          <p v-else class="assign-copy">Sin datos del gateway.</p>
         </section>
 
         <section class="info-card">
@@ -1312,7 +1330,7 @@
             <div class="info-kpi"><div class="v">{{ patients.length }}</div><div class="l">Pacientes</div></div>
             <div class="info-kpi"><div class="v">{{ callers.length }}</div><div class="l">Total llamadores</div></div>
           </div>
-          <p class="assign-copy">Táctiles = firmware HLN/VLN · Capacitivos = resto de llamadores no repetidores.</p>
+          <p class="assign-copy">Táctiles = firmware HLN/VLN o THLN/TVLN · Capacitivos = resto de llamadores no repetidores.</p>
         </section>
       </div>
     </div>
@@ -1492,6 +1510,7 @@ createApp({
     const specialLampIds = ref({ type3: [], type4: [], type5: [], type6: [] });
 
     let clockTimer;
+    let diagnosticsTimer;
     const socket = io();
 
     socket.on('connect',    () => { connected.value = true; });
@@ -1518,6 +1537,10 @@ createApp({
       const idx = devices.value.findIndex(d => d.deviceId === device.deviceId);
       if (idx >= 0) devices.value[idx] = device;
       else devices.value.push(device);
+    });
+    socket.on('device_presence', ({ deviceId, lastSeenMs, online }) => {
+      const idx = devices.value.findIndex(d => d.deviceId === deviceId);
+      if (idx >= 0) devices.value[idx] = { ...devices.value[idx], lastSeenMs, online };
     });
 
     socket.on('location_settings', (settings) => { locationSettings.value = settings; });
@@ -1658,7 +1681,7 @@ createApp({
       d.deviceType === 'espnow_repeater_c3' || /^RPT-/i.test(String(d.firmwareVersion || ''));
     const callers = computed(() => devices.value.filter(d => !isRepeater(d)));
     const repeaters = computed(() => devices.value.filter(d => isRepeater(d)));
-    const isTactile = (d) => /^(?:HLN|VLN)-/i.test(String(d.firmwareVersion || ''));
+    const isTactile = (d) => /^(?:T?HLN|T?VLN)-/i.test(String(d.firmwareVersion || '').trim());
     const tactileCallers = computed(() => callers.value.filter(d => isTactile(d)));
     const capacitiveCallers = computed(() => callers.value.filter(d => !isTactile(d)));
     const onlineCount = computed(() =>
@@ -1676,6 +1699,29 @@ createApp({
       const nowState = status.espnow?.enabled ? `NOW canal ${status.espnow.channel}` : 'NOW inactivo';
       const loraState = status.lora?.enabled ? `LoRa ${status.lora.frequency} Hz` : 'LoRa inactivo';
       return `${nowState} · ${loraState}`;
+    });
+    const gatewayInfo = computed(() => {
+      const info = networkDiagnostics.value?.gateway;
+      if (!info) return null;
+      if (info.msgType === 'gateway_config_required') return info.mac || info.firmwareVersion ? info : null;
+      if (info.msgType === 'gateway_config_ack') return null;
+      return info;
+    });
+    const gatewayMacLabel = computed(() => {
+      const raw = gatewayInfo.value?.mac;
+      if (!raw || typeof raw !== 'string') return '';
+      const hex = raw.replace(/[^0-9A-F]/gi, '').toUpperCase();
+      return hex.length === 12 ? hex.match(/.{2}/g)?.join(':') || raw : raw;
+    });
+    const gatewayFirmwareLabel = computed(() => {
+      const version = gatewayInfo.value?.firmwareVersion;
+      return typeof version === 'string' && version.trim() ? version.trim() : 'No reportado';
+    });
+    const gatewayModeLabel = computed(() => {
+      const mode = gatewayInfo.value?.opMode;
+      if (mode === 'local') return 'Local';
+      if (mode === 'test') return 'Prueba';
+      return mode || '—';
     });
     const presetColors = ['#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e','#ffffff','#94a3b8','#facc15'];
     const colorLabels = ['Rojo puro','Naranja rojizo','Naranja','Ámbar dorado','Verde lima','Verde','Verde esmeralda','Turquesa','Celeste','Azul cielo','Azul','Azul violeta','Púrpura','Violeta magenta','Magenta fucsia','Rosa fuerte','Rosa rojizo','Blanco','Azul grisáceo','Dorado cálido'];
@@ -2046,8 +2092,12 @@ createApp({
       }
     };
 
-    onMounted(() => { load(); loadReports(); loadSystemInfo(); loadNetworkDiagnostics(); clockTimer = setInterval(() => { now.value = Date.now(); }, 1000); });
-    onUnmounted(() => { clearInterval(clockTimer); socket.disconnect(); });
+    onMounted(() => {
+      load(); loadReports(); loadSystemInfo(); loadNetworkDiagnostics();
+      clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+      diagnosticsTimer = setInterval(() => { if (tab.value === 'info') loadNetworkDiagnostics(); }, 2000);
+    });
+    onUnmounted(() => { clearInterval(clockTimer); clearInterval(diagnosticsTimer); socket.disconnect(); });
 
     return {
       networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics,
@@ -2059,7 +2109,7 @@ createApp({
       SPECIAL_CALL_TYPES, specialFilter, specialLampIds, specialCountByType, specialTypeIcon,
       devices, callers, tactileCallers, capacitiveCallers, repeaters, callHistory, lamps, alertProfiles, assignDevice, selectedLampIds, presetColors,
       colorLabels, animationLabels, soundLabels, locationSettings, soundFiles, settingsSavedAt,
-      gatewayStatus, gatewayConfig, gatewaySaving, gatewayMessage, gatewayStatusText,
+      gatewayStatus, gatewayConfig, gatewaySaving, gatewayMessage, gatewayStatusText, gatewayInfo, gatewayMacLabel, gatewayFirmwareLabel, gatewayModeLabel,
       editingId, editName, editingLampId, editLampName, endingId, now,
       emergencyCount, onlineCount, onlineRepeaterCount, onlineLampCount, emergencyLampCount,
       isOnline, getDeviceName, callerLocationClass, formatDuration, transportLabel, transportChangeTimedOut, isOnTime, reminderIntervalLabel,

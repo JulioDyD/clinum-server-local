@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { config } from "./config.js";
 import { isSpecialCallType } from "./types.js";
+import { isTactileFirmware } from "./deviceTypes.js";
 import { SqliteStore } from "./store/sqliteStore.js";
 import { RealtimeHub } from "./ws/realtimeHub.js";
 import { SerialGateway } from "./serial/serialGateway.js";
@@ -41,6 +42,15 @@ const hub = new RealtimeHub(app.server, (socket) => {
     socket.emit("location_settings", store.getLocationSettings());
     socket.emit("patient_list", store.getPatients());
 });
+const devicePresenceSentAt = new Map();
+const DEVICE_PRESENCE_THROTTLE_MS = 5000;
+function publishDevicePresence(device) {
+    const now = Date.now();
+    if (now - (devicePresenceSentAt.get(device.deviceId) ?? 0) < DEVICE_PRESENCE_THROTTLE_MS)
+        return;
+    devicePresenceSentAt.set(device.deviceId, now);
+    hub.publishDevicePresence(device.deviceId, device.lastSeenMs, device.online);
+}
 const gateway = new SerialGateway(config.serialPort, config.serialBaud, {
     onFrame: (frame) => void handleFrame(frame).catch(error => app.log.error({ error, deviceId: frame?.deviceId }, "Frame not committed; sender must retry")),
     onGatewayControl: (frame) => handleGatewayControl(frame),
@@ -479,7 +489,7 @@ async function handleFrame(frame) {
         }
         if (!existingDevice)
             hub.publishDeviceRegistered(device);
-        if (store.getPatientByDevice(frame.deviceId) || /^(?:HLN|VLN)-/i.test(device.firmwareVersion ?? ""))
+        if (store.getPatientByDevice(frame.deviceId) || isTactileFirmware(device.firmwareVersion))
             syncPatient(frame.deviceId);
         return;
     }
@@ -536,6 +546,7 @@ async function handleFrame(frame) {
                 confirmedEndCalls.delete(frame.deviceId);
             }
             const device = store.touchDevice(frame.deviceId, frame.srcMac);
+            publishDevicePresence(device);
             hub.publishCallState(store.withPatientName(next));
             hub.publishActiveCalls(store.getActiveCalls());
             ack("ok", frame);
@@ -568,6 +579,7 @@ async function handleFrame(frame) {
             pendingEndCommands.delete(frame.deviceId);
             confirmedEndCalls.set(frame.deviceId, next.startSeq);
             const device = store.touchDevice(frame.deviceId, frame.srcMac);
+            publishDevicePresence(device);
             hub.publishCallState(store.withPatientName(next));
             hub.publishActiveCalls(store.getActiveCalls());
             if (historyRecord)
@@ -601,6 +613,7 @@ async function handleFrame(frame) {
             // de llamada. No avanzar seq_tracker: un heartbeat posterior no debe
             // convertir en "antigua" una llamada pendiente que se esta reintentando.
             const device = store.touchDevice(frame.deviceId, frame.srcMac);
+            publishDevicePresence(device);
             const callState = store.getCallForDevice(frame.deviceId);
             if (callState && !callState.active && callState.startSeq > 0 &&
                 confirmedEndCalls.get(frame.deviceId) !== callState.startSeq &&
@@ -1042,7 +1055,7 @@ async function bootstrap() {
                 commandSeq: saved.seq, targetCallSeq: Number(saved.payload.targetCallSeq), attempts: 0, lastSentAtMs: 0 });
     }
     for (const device of store.getDevices()) {
-        if (store.getPatientByDevice(device.deviceId) || /^(?:HLN|VLN)-/i.test(device.firmwareVersion ?? ""))
+        if (store.getPatientByDevice(device.deviceId) || isTactileFirmware(device.firmwareVersion))
             syncPatient(device.deviceId);
     }
     for (const lamp of store.getLamps()) {
@@ -1066,6 +1079,19 @@ async function bootstrap() {
     setInterval(retryPatients, 1000);
     setInterval(retryDeviceNames, 1000);
     setInterval(() => gateway.requestGatewayStatus(), 2000);
+    // Presencia: la UI usa lastSeenMs con una ventana de 90 s. El barrido mantiene
+    // online coherente en BD y notifica a los navegadores cuando algo expira.
+    setInterval(() => {
+        const offlineDevices = store.sweepOfflineDevices(90_000);
+        if (offlineDevices.length > 0) {
+            for (const deviceId of offlineDevices)
+                devicePresenceSentAt.delete(deviceId);
+            hub.publishDeviceList(store.getDevices());
+        }
+        const offlineLamps = store.sweepOfflineLamps(90_000);
+        if (offlineLamps.length > 0)
+            hub.publishLampList(store.getLamps());
+    }, 5000);
     // Auto-finaliza llamados especiales cuyo perfil tiene cronómetro (autoEndS > 0).
     // Cada (dispositivo, tipo) tiene su propio cronómetro e independiente.
     setInterval(() => {
