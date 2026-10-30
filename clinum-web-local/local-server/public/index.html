@@ -1190,6 +1190,9 @@
           <div class="field"><label>Volumen de voz ({{ locationSettings.voiceVolume }})</label><input type="range" min="0" max="1" step="0.1" v-model.number="locationSettings.voiceVolume"></div>
         </div>
         <div class="modal-actions">
+          <button class="btn-xs btn-cancel" @click="testSound('normal')">Probar sonido normal</button>
+          <button class="btn-xs btn-cancel" @click="testSound('emergency')">Probar emergencia</button>
+          <button class="btn-xs btn-cancel" @click="testVoice">Probar voz</button>
           <button class="btn-xs btn-save" @click="saveLocationSettings">Guardar</button>
           <span v-if="settingsSavedAt" class="assign-copy">Guardado ✓</span>
         </div>
@@ -1615,7 +1618,7 @@ createApp({
       soundEnabled: true, soundVolume: 80, alertSound: 'clinum_normal.mp3', emergencySound: 'clinum_emergency.mp3',
       voiceEnabled: true, voiceRate: 1.0, voicePitch: 1.0, voiceVolume: 0.9,
     };
-    const soundFiles = ['clinum_normal.mp3','clinum_emergency.mp3','alert.mp3','bell.mp3','chime.mp3','ding.mp3','discordcall.mp3','emergency-loop.mp3'];
+    const soundFiles = ['clinum_normal.mp3','clinum_emergency.mp3','alert.mp3','ding.mp3','discordcall.mp3','emergency-loop.mp3'];
     const settingsSavedAt = ref(0);
     const gatewayStatus = ref(null);
     const gatewaySaving = ref(false);
@@ -2268,6 +2271,33 @@ createApp({
       setTimeout(() => { settingsSavedAt.value = 0; }, 2500);
     };
 
+    const testSound = (kind) => {
+      const file = kind === 'emergency' ? locationSettings.value.emergencySound : locationSettings.value.alertSound;
+      const volume = Math.max(0, Math.min(1, Number(locationSettings.value.soundVolume ?? 80) / 100));
+      try {
+        const audio = new Audio(`/sounds/${file}`);
+        audio.volume = volume;
+        audio.play().catch(() => {});
+      } catch (e) { console.error('testSound failed', e); }
+    };
+
+    const testVoice = () => {
+      if (!('speechSynthesis' in window)) return;
+      const utterance = new SpeechSynthesisUtterance('Llamado desde Cama 101');
+      utterance.lang = 'es-MX';
+      utterance.rate = Number(locationSettings.value.voiceRate) || 1;
+      utterance.pitch = Number(locationSettings.value.voicePitch) || 1;
+      utterance.volume = Math.max(0, Math.min(1, Number(locationSettings.value.voiceVolume ?? 0.9)));
+      const voices = window.speechSynthesis.getVoices();
+      const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
+      const voice = voices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
+        || voices.find(v => v.lang.startsWith('es'));
+      if (voice) utterance.voice = voice;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(utterance);
+    };
+
     const resetLocationSettings = async () => {
       if (!confirm('¿Restablecer TODA la configuración de la sede a los valores por defecto?\n\nSe cambiarán el nombre de la sede, el tiempo de atención, el audio, los recordatorios, los colores y el tamaño de la pantalla.')) return;
       const response = await fetch('/location-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(DEFAULT_LOCATION_SETTINGS) }).then(r => r.json());
@@ -2381,7 +2411,7 @@ createApp({
       formatLastSeen, formatMs, formatTime, formatDateTime,
       startEdit, saveEdit, cancelEdit, deleteDevice, endCall, isEndingCall, saveLocationType, getLocationIcon, locationIconSvg,
       saveLamp, switchTransport, testLamp, startEditLamp, saveEditLamp, cancelEditLamp, deleteLamp,
-      openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, resetLocationSettings, bumpUiScale, saveGatewayConfig,
+      openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, resetLocationSettings, testSound, testVoice, bumpUiScale, saveGatewayConfig,
       previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle,
     };
   }

@@ -165,6 +165,26 @@ createApp({
 
     const isSpeaking = ref(false);
     const speechQueue = ref([]);
+    const MAX_SPEECH_QUEUE = 5;
+    const SPEECH_WATCHDOG_MS = 12000;
+    let speechAdvanceTimer = null;
+    let speechWatchdogTimer = null;
+    let cachedVoices = [];
+
+    const loadVoices = () => {
+      if (!('speechSynthesis' in window)) return;
+      cachedVoices = window.speechSynthesis.getVoices() || [];
+    };
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      window.speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
+    }
+    const pickSpanishVoice = () => {
+      if (!cachedVoices.length) loadVoices();
+      const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
+      return cachedVoices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
+        || cachedVoices.find(v => v.lang.startsWith('es')) || null;
+    };
 
     // Recuerda cons por deviceId para detectar insistencias entre snapshots
     const knownCons = new Map();
@@ -273,16 +293,35 @@ createApp({
     };
 
     // ── Audio ──
+    const appliedAudio = { normal: '', emergency: '', volume: -1 };
+    const clampVolume = (value, fallback) => {
+      const n = Number(value);
+      return Math.max(0, Math.min(1, Number.isFinite(n) ? n : fallback));
+    };
+    const setAudioSrc = (el, src) => {
+      if (el.getAttribute('src') !== src) el.src = src;
+    };
     const applyAudioSources = () => {
-      const normalSrc = `/sounds/${settings.value.alertSound}`;
-      const emergencySrc = `/sounds/${settings.value.emergencySound}`;
-      const vol = settings.value.soundVolume / 100;
-      [alertSound, alertSoundBackup1, alertSoundBackup2].forEach(a => {
-        if (a.value) { a.value.src = normalSrc; a.value.volume = vol; }
-      });
-      [emergencySound, emergencySoundBackup1, emergencySoundBackup2].forEach(a => {
-        if (a.value) { a.value.src = emergencySrc; a.value.volume = vol; }
-      });
+      const normalSrc = `/sounds/${settings.value.alertSound || 'clinum_normal.mp3'}`;
+      const emergencySrc = `/sounds/${settings.value.emergencySound || 'clinum_emergency.mp3'}`;
+      const vol = clampVolume(Number(settings.value.soundVolume ?? 80) / 100, 0.8);
+      if (appliedAudio.normal !== normalSrc || appliedAudio.volume !== vol) {
+        [alertSound, alertSoundBackup1, alertSoundBackup2].forEach(a => {
+          if (!a.value) return;
+          setAudioSrc(a.value, normalSrc);
+          a.value.volume = vol;
+        });
+        appliedAudio.normal = normalSrc;
+      }
+      if (appliedAudio.emergency !== emergencySrc || appliedAudio.volume !== vol) {
+        [emergencySound, emergencySoundBackup1, emergencySoundBackup2].forEach(a => {
+          if (!a.value) return;
+          setAudioSrc(a.value, emergencySrc);
+          a.value.volume = vol;
+        });
+        appliedAudio.emergency = emergencySrc;
+      }
+      appliedAudio.volume = vol;
     };
 
     const getNextAudioElement = (isEmergency) => {
@@ -294,54 +333,110 @@ createApp({
       return el;
     };
 
+    // Reproductor de respaldo reutilizable: mantiene el volumen configurado
+    // (antes creaba un Audio nuevo a volumen 1.0 en cada fallo).
+    const fallbackPlayers = { normal: null, emergency: null };
+    const playFallbackSound = (isEmergency, volume) => {
+      const key = isEmergency ? 'emergency' : 'normal';
+      const file = isEmergency
+        ? (settings.value.emergencySound || 'clinum_emergency.mp3')
+        : (settings.value.alertSound || 'clinum_normal.mp3');
+      let player = fallbackPlayers[key];
+      if (!player) { player = new Audio(); fallbackPlayers[key] = player; }
+      setAudioSrc(player, `/sounds/${file}`);
+      player.volume = volume;
+      try { player.currentTime = 0; } catch {}
+      player.play().catch(() => {});
+    };
+
     const playAlertSound = (isEmergency) => {
       if (!settings.value.soundEnabled) return;
+      const vol = clampVolume(Number(settings.value.soundVolume ?? 80) / 100, 0.8);
       try {
         const el = getNextAudioElement(isEmergency);
         if (!el) return;
         el.muted = false;
-        el.volume = settings.value.soundVolume / 100;
-        el.currentTime = 0;
-        el.play().catch(() => {
-          const soundFile = isEmergency ? settings.value.emergencySound : settings.value.alertSound;
-          new Audio(`/sounds/${soundFile}`).play().catch(() => {});
-        });
-      } catch (e) { /* ignorado */ }
+        el.volume = vol;
+        try { el.currentTime = 0; } catch {}
+        el.play().catch(() => playFallbackSound(isEmergency, vol));
+      } catch (e) { playFallbackSound(isEmergency, vol); }
     };
 
+    // ── Voz ──
+    const clearSpeechTimers = () => {
+      if (speechAdvanceTimer) { clearTimeout(speechAdvanceTimer); speechAdvanceTimer = null; }
+      if (speechWatchdogTimer) { clearTimeout(speechWatchdogTimer); speechWatchdogTimer = null; }
+    };
+    const finishSpeech = () => {
+      if (speechWatchdogTimer) { clearTimeout(speechWatchdogTimer); speechWatchdogTimer = null; }
+      isSpeaking.value = false;
+      if (speechAdvanceTimer) clearTimeout(speechAdvanceTimer);
+      speechAdvanceTimer = setTimeout(processSpeechQueue, 350);
+    };
+    const cancelSpeech = () => {
+      speechQueue.value = [];
+      clearSpeechTimers();
+      isSpeaking.value = false;
+      try { window.speechSynthesis.cancel(); } catch {}
+    };
+    const enqueueSpeech = (item) => {
+      if (item.pendingReminder) {
+        // Un solo recordatorio en cola: no acumular avisos repetidos.
+        if (speechQueue.value.some(x => x.pendingReminder)) return;
+      } else if (item.deviceId) {
+        // Si el mismo llamador vuelve a insistir, reemplaza el anuncio viejo.
+        const duplicate = speechQueue.value.findIndex(x => x.deviceId === item.deviceId);
+        if (duplicate >= 0) speechQueue.value.splice(duplicate, 1);
+      }
+      speechQueue.value.push(item);
+      while (speechQueue.value.length > MAX_SPEECH_QUEUE) {
+        const idx = speechQueue.value.findIndex(x => !x.pendingReminder);
+        if (idx < 0) break;
+        speechQueue.value.splice(idx, 1);
+      }
+      processSpeechQueue();
+    };
     const processSpeechQueue = () => {
       if (isSpeaking.value || speechQueue.value.length === 0) return;
-      const { callerName, isEmergency, pendingReminder } = speechQueue.value.shift();
+      if (!('speechSynthesis' in window)) { speechQueue.value = []; return; }
+      const item = speechQueue.value.shift();
+      const message = item.pendingReminder
+        ? 'hay llamados pendientes por finalizar'
+        : (item.isEmergency ? `Llamado de emergencia desde ${item.callerName}` : `Llamado desde ${item.callerName}`);
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = 'es-MX';
+      utterance.rate = Number(settings.value.voiceRate) || 1.0;
+      utterance.pitch = Number(settings.value.voicePitch) || 1.0;
+      utterance.volume = clampVolume(settings.value.voiceVolume ?? 0.9, 0.9);
+      const voice = pickSpanishVoice();
+      if (voice) utterance.voice = voice;
+
+      let settled = false;
+      const settle = () => { if (settled) return; settled = true; finishSpeech(); };
+      utterance.onend = settle;
+      utterance.onerror = (event) => {
+        if (event?.error && event.error !== 'interrupted' && event.error !== 'canceled') {
+          console.warn('No se pudo reproducir la voz:', event.error);
+        }
+        settle();
+      };
+
+      isSpeaking.value = true;
+      speechWatchdogTimer = setTimeout(() => {
+        try { window.speechSynthesis.cancel(); } catch {}
+        settle();
+      }, SPEECH_WATCHDOG_MS);
       try {
-        const message = pendingReminder
-          ? 'hay llamados pendientes por finalizar'
-          : (isEmergency ? `Llamado de emergencia desde ${callerName}` : `Llamado desde ${callerName}`);
-        const utterance = new SpeechSynthesisUtterance(message);
-        utterance.lang = 'es-MX';
-        utterance.rate = settings.value.voiceRate || 1.0;
-        utterance.pitch = settings.value.voicePitch || 1.0;
-        utterance.volume = (settings.value.soundVolume / 100) * (settings.value.voiceVolume || 0.9);
-
-        const voices = window.speechSynthesis.getVoices();
-        const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
-        let selectedVoice = voices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
-          || voices.find(v => v.lang.startsWith('es'));
-        if (selectedVoice) utterance.voice = selectedVoice;
-
-        isSpeaking.value = true;
-        utterance.onend = () => { isSpeaking.value = false; setTimeout(processSpeechQueue, 500); };
-        utterance.onerror = () => { isSpeaking.value = false; setTimeout(processSpeechQueue, 500); };
+        window.speechSynthesis.resume();
         window.speechSynthesis.speak(utterance);
       } catch (e) {
-        isSpeaking.value = false;
-        setTimeout(processSpeechQueue, 500);
+        console.warn('No se pudo iniciar la voz:', e);
+        settle();
       }
     };
-
-    const speakCallAnnouncement = (callerName, isEmergency) => {
+    const speakCallAnnouncement = (deviceId, callerName, isEmergency) => {
       if (!('speechSynthesis' in window) || !settings.value.voiceEnabled) return;
-      speechQueue.value.push({ callerName, isEmergency });
-      processSpeechQueue();
+      enqueueSpeech({ deviceId, callerName, isEmergency });
     };
 
     // Recordatorio de pendientes: mientras haya llamados sin finalizar,
@@ -360,8 +455,7 @@ createApp({
       lastPendingReminderAt.value = now;
       const hasEmergency = allCalls.value.some(c => c.isEmergency);
       if (settings.value.voiceEnabled && ('speechSynthesis' in window)) {
-        speechQueue.value.push({ pendingReminder: true });
-        processSpeechQueue();
+        enqueueSpeech({ pendingReminder: true });
       } else {
         playAlertSound(hasEmergency);
       }
@@ -374,7 +468,7 @@ createApp({
       newCallIds.value = [...newCallIds.value, deviceId];
       setTimeout(() => { newCallIds.value = newCallIds.value.filter(id => id !== deviceId); }, 5000);
       if (settings.value.voiceEnabled) {
-        speakCallAnnouncement(getDeviceName(deviceId), isEmergency);
+        speakCallAnnouncement(deviceId, getDeviceName(deviceId), isEmergency);
       } else {
         playAlertSound(isEmergency);
       }
@@ -459,7 +553,12 @@ createApp({
         const idx = devices.value.findIndex(d => d.deviceId === device.deviceId);
         if (idx >= 0) devices.value[idx] = device; else devices.value.push(device);
       });
-      socket.on('location_settings', (next) => { settings.value = next; applyAudioSources(); });
+      socket.on('location_settings', (next) => {
+        const voiceWasEnabled = settings.value.voiceEnabled;
+        settings.value = next;
+        applyAudioSources();
+        if (voiceWasEnabled && !next.voiceEnabled) cancelSpeech();
+      });
 
       clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);
       timerTimer = setInterval(() => {
@@ -478,6 +577,10 @@ createApp({
 
     onUnmounted(() => {
       window.removeEventListener('resize', updateViewport);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.removeEventListener?.('voiceschanged', loadVoices);
+      }
+      cancelSpeech();
       if (socket) socket.disconnect();
       clearInterval(clockTimer);
       clearInterval(timerTimer);

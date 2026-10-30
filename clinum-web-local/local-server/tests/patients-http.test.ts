@@ -39,12 +39,23 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(html, /Descartar comandos/);
       assert.match(script, /const clearPendingCommands/);
       assert.match(script, /network\/pending-commands/);
+      assert.match(html, /Probar voz/);
+      assert.match(script, /const testSound/);
+      assert.match(script, /const testVoice/);
+      assert.doesNotMatch(script, /bell\.mp3/);
+      assert.doesNotMatch(script, /chime\.mp3/);
     } else {
       assert.match(script, /const screenTransform/);
       assert.match(script, /BASE_WIDTH = 1920/);
       assert.match(script, /BASE_HEIGHT = 1080/);
       assert.match(script, /maxVisibleCalls/);
       assert.match(script, /uiScalePercent/);
+      assert.match(script, /const pickSpanishVoice/);
+      assert.match(script, /SPEECH_WATCHDOG_MS/);
+      assert.match(script, /const enqueueSpeech/);
+      assert.match(script, /const cancelSpeech/);
+      assert.match(script, /const playFallbackSound/);
+      assert.match(script, /voiceschanged/);
       assert.match(html, /\.call-row \.call-text \{ color: var\(--text-color/);
       assert.doesNotMatch(html, /mirror-icon/);
     }
@@ -116,6 +127,14 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
     assert.ok(cleared.data.cleared >= 2);
     diagnostics = (await request("/network/diagnostics")).data;
     assert.equal(diagnostics.pendingCommands.length, 0);
+
+    const soundCheck = await request("/location-settings", "PATCH", { alertSound: "bell.mp3", emergencySound: "alert.mp3" });
+    assert.equal(soundCheck.data.alertSound, "clinum_normal.mp3");
+    assert.equal(soundCheck.data.emergencySound, "alert.mp3");
+    const soundResponse = await fetch(base + "/sounds/clinum_normal.mp3");
+    assert.match(soundResponse.headers.get("cache-control") || "", /immutable/);
+    const pageResponse = await fetch(base + "/");
+    assert.match(pageResponse.headers.get("cache-control") || "", /no-cache/);
 
     assert.equal((await request("/devices/CALLER000001", "PATCH", { name: "Cama dos" })).status, 200);
     diagnostics = (await request("/network/diagnostics")).data;

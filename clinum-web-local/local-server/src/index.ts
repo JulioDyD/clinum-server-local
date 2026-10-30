@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -13,6 +13,13 @@ import { RealtimeHub } from "./ws/realtimeHub.js";
 import { SerialGateway } from "./serial/serialGateway.js";
 import { FirebaseBridge } from "./firebase/firebaseBridge.js";
 import { getIntegrationSettings, updateIntegrationSettings, type IntegrationSettingsInput } from "./envSettings.js";
+
+const SOUNDS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "sounds");
+/** Solo se aceptan audios existentes y no vacios: evita seleccionar MP3 rotos. */
+const isPlayableSound = (file: unknown): file is string => {
+  if (typeof file !== "string" || !/^[A-Za-z0-9._-]+$/.test(file)) return false;
+  try { return statSync(join(SOUNDS_DIR, file)).size > 0; } catch { return false; }
+};
 
 const _integration0 = getIntegrationSettings();
 FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly, _integration0.serviceAccountPath);
@@ -799,7 +806,10 @@ app.get("/lamp-alert-profiles", async () => ({ items: store.getLampAlertProfiles
 app.get("/location-settings", async () => store.getLocationSettings());
 
 app.patch<{ Body: Partial<LocationSettings> }>("/location-settings", async (req) => {
-  const settings = store.updateLocationSettings(req.body ?? {});
+  const body = { ...(req.body ?? {}) };
+  if (body.alertSound !== undefined && !isPlayableSound(body.alertSound)) delete body.alertSound;
+  if (body.emergencySound !== undefined && !isPlayableSound(body.emergencySound)) delete body.emergencySound;
+  const settings = store.updateLocationSettings(body);
   hub.publishLocationSettings(settings);
   return settings;
 });
@@ -1112,7 +1122,10 @@ async function bootstrap(): Promise<void> {
     decorateReply: false,
     // La pantalla de sala puede estar abierta días: sin no-cache el navegador
     // sirve HTML/JS viejo por caché heurística y no aplica los últimos cambios.
-    setHeaders: (res) => { res.setHeader("Cache-Control", "no-cache"); },
+    setHeaders: (res, filePath) => {
+      const immutableSound = /[/\\]sounds[/\\]/.test(filePath);
+      res.setHeader("Cache-Control", immutableSound ? "public, max-age=31536000, immutable" : "no-cache");
+    },
   });
 
   const stopConfigWatch = firebase.subscribeConfig((deviceId, cfg) => {
