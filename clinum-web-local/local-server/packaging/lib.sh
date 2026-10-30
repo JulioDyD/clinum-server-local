@@ -62,6 +62,38 @@ find_app_dir() {
   die "local-server not found (searched from $base). Clone full repo or use --repo."
 }
 
+# Fetches ONLY the app subtree from git. Firmware directories are versioned in
+# git but must never reach a site: partial clone (no blobs) + sparse checkout
+# keeps them out of /tmp and out of the .deb.
+# Falls back to a full clone if the git server does not support partial clone.
+fetch_app_source() {
+  local repo="$1" ref="$2" dest="$3" self_root=""
+  # Never delete the checkout this script is running from (e.g. when invoked
+  # from /tmp/clinum-site-src): use a sibling directory in that case.
+  self_root="$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd || true)"
+  if [ -n "$self_root" ] && [ "$(cd "$dest" 2>/dev/null && pwd || true)" = "$self_root" ]; then
+    dest="${dest}-fetch"
+    warn "Running from $self_root; using $dest for the fresh checkout."
+  fi
+  FETCHED_SRC="$dest"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  if git clone --depth 1 --branch "$ref" --filter=blob:none --sparse "$repo" "$dest" 2>/dev/null; then
+    if git -C "$dest" sparse-checkout set --cone "$APP_REL_PATH" 2>/dev/null \
+       || git -C "$dest" sparse-checkout set "$APP_REL_PATH" 2>/dev/null; then
+      if [ -d "$dest/$APP_REL_PATH" ]; then
+        log "Sparse checkout: solo $APP_REL_PATH (firmware no descargado)"
+        return 0
+      fi
+    fi
+    warn "Sparse checkout unavailable for $APP_REL_PATH; retrying full clone."
+    rm -rf "$dest"
+  fi
+  git clone "$repo" "$dest" || die "Could not clone $repo"
+  git -C "$dest" checkout "$ref" || die "Could not checkout $ref"
+  warn "Full clone used: firmware files were downloaded (git server lacks partial clone)."
+}
+
 detect_serial() {
   local prefer="${1:-}"
   # Explicit path always wins. Empty or "auto" => fixed default (gateway uses ttyACM0).

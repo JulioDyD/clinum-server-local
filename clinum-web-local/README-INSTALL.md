@@ -3,6 +3,11 @@
 Flujo profesional: el codigo se sube a git (push + tag) y cada sede se
 instala/actualiza desde ahi. Nunca se copia a mano desde Windows.
 
+El instalador y el actualizador descargan **solo** `clinum-web-local/local-server`
+(clon parcial + sparse checkout). Las carpetas de firmware de los dispositivos
+siguen versionadas en git, pero **no se descargan ni se despliegan en las sedes**;
+el `.deb` tampoco las incluye.
+
 ## Publicar una version (desarrollador, en Windows)
 
 ```bash
@@ -23,8 +28,10 @@ git push origin main --tags
 ## Sede nueva (equipo Linux Mint, como root)
 
 ```bash
-git clone --depth 1 https://github.com/JulioDyD/clinum-server-local.git
-sudo bash clinum-server-local/clinum-web-local/local-server/packaging/site-install.sh \
+git clone --depth 1 --filter=blob:none --sparse https://github.com/JulioDyD/clinum-server-local.git
+cd clinum-server-local
+git sparse-checkout set --cone clinum-web-local/local-server
+sudo bash clinum-web-local/local-server/packaging/site-install.sh \
   --ref vX.Y.Z --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
 
@@ -35,10 +42,17 @@ El panel queda en `http://<ip-sede>:8081` (HTTP local). Con `--https` queda en
 ## Actualizar sede existente (preserva .env y base de datos)
 
 ```bash
-sudo bash /tmp/clinum-site-src/clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
-# o, si ya tienes el repo clonado en la sede:
+# Opcion recomendada: clon parcial (solo la app, sin firmware)
+cd /tmp && rm -rf clinum-update-src
+git clone --depth 1 --branch vX.Y.Z --filter=blob:none --sparse \
+  https://github.com/JulioDyD/clinum-server-local.git clinum-update-src
+cd clinum-update-src
+git sparse-checkout set --cone clinum-web-local/local-server
 sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
-# solo consultar sin instalar:
+
+# Si ya tienes un clon de la app en la sede:
+sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
+# Solo consultar sin instalar:
 sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --check-only
 ```
 

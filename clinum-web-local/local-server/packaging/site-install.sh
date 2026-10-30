@@ -55,11 +55,9 @@ else
   ensure_build_deps
   command -v git >/dev/null 2>&1 || apt-get install -y git
   SRC="$WORKDIR/clinum-site-src"
-  rm -rf "$SRC"; mkdir -p "$WORKDIR"
-  log "Cloning $REPO (@ $REF) ..."
-  git clone --depth 1 --branch "$REF" "$REPO" "$SRC" 2>/dev/null || {
-    git clone "$REPO" "$SRC" && git -C "$SRC" checkout "$REF"
-  }
+  log "Fetching app subtree $REPO (@ $REF) ..."
+  fetch_app_source "$REPO" "$REF" "$SRC"
+  SRC="$FETCHED_SRC"
   if [ -d "$SRC/$APP_REL_PATH" ]; then APP_DIR="$SRC/$APP_REL_PATH";
   elif [ -f "$SRC/package.json" ]; then APP_DIR="$SRC";
   else die "Checkout has no local-server (check repo/ref)."; fi
