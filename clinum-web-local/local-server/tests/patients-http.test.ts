@@ -42,6 +42,8 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(html, /Probar voz/);
       assert.match(script, /const testSound/);
       assert.match(script, /const testVoice/);
+      assert.match(script, /const formatDate/);
+      assert.match(html, /msx-date/);
       assert.doesNotMatch(script, /bell\.mp3/);
       assert.doesNotMatch(script, /chime\.mp3/);
     } else {
@@ -61,6 +63,10 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /hay un llamado pendiente por finalizar/);
       assert.match(script, /hay llamados pendientes por finalizar/);
       assert.match(script, /isEmergency: hasEmergency, count: pendingCount/);
+      assert.match(script, /formattedCurrentDate/);
+      assert.match(script, /weekday: 'long'/);
+      assert.match(html, /last-date/);
+      assert.match(script, /CHROME_HEIGHT/);
       assert.match(html, /\.call-row \.call-text \{ color: var\(--text-color/);
       assert.doesNotMatch(html, /mirror-icon/);
     }

@@ -522,7 +522,9 @@
     .msx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .msx-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 22px; border-top: 1px solid var(--header-color, #f59e0b); font-size: 1.2rem; color: #94a3b8; background-color: rgba(26,26,26,0.9); flex-shrink: 0; }
     .msx-location { flex: 1 1 auto; min-width: 0; font-weight: bold; color: var(--header-color, #f59e0b); font-size: 1.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .msx-clock { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; line-height: 1.15; white-space: nowrap; }
     .msx-time { flex: 0 0 auto; white-space: nowrap; font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
+    .msx-date { font-weight: 700; color: #e2e8f0; font-size: 1.1rem; }
     .msx-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #64748b; text-align: center; }
     .msx-empty .big-icon { font-size: 5rem; }
     .msx-empty .big-icon svg { width: 5rem; height: 5rem; display: block; }
@@ -1274,7 +1276,10 @@
               </div>
               <div class="msx-footer">
                 <div class="msx-location">{{ locationSettings.name || 'Sede sin nombre' }}<span v-if="!previewShowEmpty && previewCalls.length > previewCapacity"> - Mostrando {{ previewVisibleCalls.length }} de {{ previewCalls.length }}</span></div>
-                <div class="msx-time">{{ formatTime(now) }}</div>
+                <div class="msx-clock">
+              <span class="msx-time">{{ formatTime(now) }}</span>
+              <span class="msx-date">{{ formatDate(now) }}</span>
+            </div>
               </div>
             </div>
           </div>
@@ -2039,7 +2044,15 @@ createApp({
 
     const formatTime = (ms) => {
       if (!ms) return '—';
-      return new Date(ms).toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      return new Date(ms).toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: 'America/Bogota' });
+    };
+
+    const formatDate = (ms) => {
+      if (!ms) return '—';
+      const formatted = new Intl.DateTimeFormat('es-CO', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota',
+      }).format(new Date(ms));
+      return formatted.charAt(0).toUpperCase() + formatted.slice(1);
     };
 
     const formatDateTime = (ms) => {
@@ -2257,9 +2270,11 @@ createApp({
       '--emergency-call-color': locationSettings.value.emergencyCallColor,
       '--timer-color': locationSettings.value.timerColor,
     }));
+    const PREVIEW_CHROME_HEIGHT = 170;
+    const PREVIEW_CALL_ROW_HEIGHT = 77;
     const previewCapacity = computed(() => {
       const layoutHeight = 1080 / previewZoom.value;
-      return Math.max(1, Math.min(7, Math.floor((layoutHeight - 126) / 72)));
+      return Math.max(1, Math.min(7, Math.floor((layoutHeight - PREVIEW_CHROME_HEIGHT) / PREVIEW_CALL_ROW_HEIGHT)));
     });
     const previewVisibleCalls = computed(() => previewCalls.slice(0, previewCapacity.value));
     let previewObserver = null;
@@ -2412,7 +2427,7 @@ createApp({
       startEdit, saveEdit, cancelEdit, deleteDevice, endCall, isEndingCall, saveLocationType, getLocationIcon, locationIconSvg,
       saveLamp, switchTransport, testLamp, startEditLamp, saveEditLamp, cancelEditLamp, deleteLamp,
       openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, resetLocationSettings, testSound, testVoice, bumpUiScale, saveGatewayConfig,
-      previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle,
+      previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle, formatDate,
     };
   }
 }).mount('#app');
