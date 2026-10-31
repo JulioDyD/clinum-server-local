@@ -51,4 +51,13 @@ export class RealtimeHub {
     publishPatientList(patients) {
         this.io.emit("patient_list", patients);
     }
+    publishPresenceState(state) {
+        this.io.emit("presence_state", state);
+    }
+    publishPresenceSettings(settings) {
+        this.io.emit("presence_settings", settings);
+    }
+    publishPresenceSession(session) {
+        this.io.emit("presence_session", session);
+    }
 }

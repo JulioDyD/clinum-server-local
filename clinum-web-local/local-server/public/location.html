@@ -75,6 +75,19 @@
     .last-updated { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; line-height: 1.15; white-space: nowrap; }
     .last-time { font-family: 'Courier New', monospace; font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.4rem; }
     .last-date { font-weight: 700; color: var(--header-color, #f59e0b); font-size: 1.1rem; }
+    .presence-strip { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .presence-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: rgba(15,23,42,0.85); border: 1px solid #334155; font-size: 0.95rem; font-weight: 700; color: #cbd5e1; white-space: nowrap; line-height: 1.15; }
+    .presence-chip .presence-dot { width: 9px; height: 9px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
+    .presence-chip.free { color: #86efac; border-color: rgba(34,197,94,0.45); }
+    .presence-chip.free .presence-dot { background: #22c55e; }
+    .presence-chip.occupied { color: #fcd34d; border-color: rgba(245,158,11,0.55); }
+    .presence-chip.occupied .presence-dot { background: #f59e0b; }
+    .presence-chip.unknown { color: #cbd5e1; border-color: rgba(100,116,139,0.55); }
+    .presence-chip.unknown .presence-dot { background: #64748b; }
+    .presence-chip.alert { color: #fca5a5; border-color: #ef4444; animation: presencePulse 1.6s ease-in-out infinite; }
+    .presence-chip.alert .presence-dot { background: #ef4444; }
+    .presence-chip.more { color: #94a3b8; }
+    @keyframes presencePulse { 0%, 100% { box-shadow: 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 10px rgba(239,68,68,0.7); } }
   </style>
 </head>
 <body>
@@ -115,6 +128,14 @@
       <div class="location-info">
         {{ settings.name || 'Sede sin nombre' }}
         <span v-if="allCalls.length > maxVisibleCalls"> — Mostrando {{ visibleCalls.length }} de {{ allCalls.length }}</span>
+      </div>
+      <div v-if="showPresenceStrip" class="presence-strip">
+        <span v-for="chip in presenceChips.visible" :key="chip.deviceId" class="presence-chip" :class="[chip.state, { alert: chip.alert }]">
+          <span class="presence-dot"></span>
+          <span class="presence-name">{{ chip.areaName }}</span>
+          <span class="presence-value">{{ chip.label }}</span>
+        </span>
+        <span v-if="presenceChips.extra > 0" class="presence-chip more">+{{ presenceChips.extra }}</span>
       </div>
       <div class="last-updated">
         <span class="last-time">{{ formattedCurrentTime }}</span>
@@ -172,6 +193,7 @@ createApp({
 
     const isSpeaking = ref(false);
     const speechQueue = ref([]);
+    const presenceStatus = ref({ settings: {}, states: [] });
     const MAX_SPEECH_QUEUE = 5;
     const SPEECH_WATCHDOG_MS = 12000;
     let speechAdvanceTimer = null;
@@ -291,6 +313,51 @@ createApp({
       }).format(currentTime.value);
       return formatted.charAt(0).toUpperCase() + formatted.slice(1);
     });
+
+    const presenceChipLabel = (state) => {
+      if (state.state === 'occupied') {
+        const total = Math.max(0, Math.floor((currentTime.value.getTime() - (state.enteredAtMs || currentTime.value.getTime())) / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h > 0
+          ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+          : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+      return state.state === 'free' ? 'Libre' : 'Sin datos';
+    };
+
+    const presenceChips = computed(() => {
+      const settings = presenceStatus.value.settings || {};
+      const states = (presenceStatus.value.states || []).filter(s => settings.showFreeOnLocation !== false || s.state !== 'free');
+      const order = { occupied: 0, unknown: 1, free: 2 };
+      const sorted = [...states].sort((a, b) => {
+        if (a.alert !== b.alert) return a.alert ? -1 : 1;
+        const oa = order[a.state] ?? 3, ob = order[b.state] ?? 3;
+        if (oa !== ob) return oa - ob;
+        return String(a.areaName).localeCompare(String(b.areaName), 'es');
+      });
+      const visible = sorted.slice(0, 8).map(s => ({
+        deviceId: s.deviceId,
+        areaName: s.areaName || s.deviceId,
+        state: s.state,
+        alert: Boolean(s.alert),
+        label: presenceChipLabel(s),
+      }));
+      return { visible, extra: Math.max(0, sorted.length - visible.length) };
+    });
+
+    const showPresenceStrip = computed(() => {
+      const settings = presenceStatus.value.settings || {};
+      return Boolean(settings.enabled && settings.showOnLocation && (presenceStatus.value.states || []).length > 0);
+    });
+
+    const loadPresence = async () => {
+      try {
+        const res = await fetch('/presence/status');
+        if (res.ok) presenceStatus.value = await res.json();
+      } catch (e) { /* se recupera con socket */ }
+    };
 
     const formatCallTime = (call) => {
       if (callTimers[call.deviceId]) return callTimers[call.deviceId];
@@ -574,6 +641,7 @@ createApp({
         applyAudioSources();
         applySnapshot(callsRes.items || []);
       } catch (e) { /* se recupera con los eventos del socket */ }
+      loadPresence();
 
       socket = io();
       socket.on('active_calls', (list) => applySnapshot(list));
@@ -588,6 +656,15 @@ createApp({
         settings.value = next;
         applyAudioSources();
         if (voiceWasEnabled && !next.voiceEnabled) cancelSpeech();
+      });
+      socket.on('presence_settings', (next) => {
+        presenceStatus.value = { ...presenceStatus.value, settings: next };
+      });
+      socket.on('presence_state', (state) => {
+        const states = [...(presenceStatus.value.states || [])];
+        const idx = states.findIndex(s => s.deviceId === state.deviceId);
+        if (idx >= 0) states[idx] = state; else states.push(state);
+        presenceStatus.value = { ...presenceStatus.value, states };
       });
 
       clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);
@@ -620,6 +697,7 @@ createApp({
     return {
       maxVisibleCalls, allCalls, visibleCalls, settings, cssVariables, screenTransform, newCallIds,
       formattedCurrentTime, formattedCurrentDate, formatCallTime, locationIconSvg, accountSvg,
+      presenceStatus, showPresenceStrip, presenceChips,
       alertSound, alertSoundBackup1, alertSoundBackup2,
       emergencySound, emergencySoundBackup1, emergencySoundBackup2,
     };

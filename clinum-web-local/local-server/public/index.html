@@ -452,6 +452,16 @@
     .info-card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 1.25rem; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
     .info-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.9rem; }
     .info-card-head h3 { margin: 0; font-size: 1.02rem; color: #f8fafc; display: flex; align-items: center; gap: 0.5rem; }
+    .presence-card.is-free { border-left: 4px solid #22c55e; }
+    .presence-card.is-occupied { border-left: 4px solid #f59e0b; }
+    .presence-card.is-unknown { border-left: 4px solid #64748b; }
+    .presence-card.is-alert { border-left-color: #ef4444; }
+    .presence-badge { padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+    .presence-badge.free { background: rgba(34,197,94,.18); color: #86efac; }
+    .presence-badge.occupied { background: rgba(245,158,11,.18); color: #fcd34d; }
+    .presence-badge.unknown { background: rgba(100,116,139,.2); color: #cbd5e1; }
+    .presence-time { font-family: 'Courier New', monospace; font-size: 2rem; font-weight: 700; line-height: 1.1; color: #e2e8f0; }
+    .presence-alert { margin: 0.45rem 0 0; color: #fca5a5; font-weight: 700; font-size: 0.8rem; }
     .info-version { font-size: 0.92rem; font-weight: 700; color: #e2e8f0; letter-spacing: 0; }
     .info-subhead { margin: 1rem 0 0.55rem; padding-top: 0.85rem; border-top: 1px solid #334155; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; }
     .info-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.78rem; letter-spacing: 0.03em; }
@@ -608,6 +618,7 @@
     <button class="nav-btn" :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'; menuOpen = false">Monitor</button>
       <button class="nav-btn" :class="{ active: tab === 'devices' }" @click="tab = 'devices'; menuOpen = false">Llamadores</button>
       <button class="nav-btn" :class="{ active: tab === 'patients' }" @click="tab = 'patients'; menuOpen = false">Pacientes</button>
+      <button class="nav-btn" :class="{ active: tab === 'presence' }" @click="tab = 'presence'; menuOpen = false; ensurePresenceDrafts(); loadPresenceStatus(); loadPresenceSessions();">Presencia</button>
     <button class="nav-btn" :class="{ active: tab === 'lamps' }" @click="tab = 'lamps'; menuOpen = false">Lámparas</button>
     <button class="nav-btn" :class="{ active: tab === 'repeaters' }" @click="tab = 'repeaters'; menuOpen = false">Repetidores</button>
     <button class="nav-btn" :class="{ active: tab === 'specials' }" @click="tab = 'specials'; menuOpen = false">Especiales</button>
@@ -1395,6 +1406,108 @@
     </div>
 
     <!-- ══════════════════════════════════════
+         PRESENCE VIEW — monitoreo de baños/camas
+    ══════════════════════════════════════ -->
+    <div v-show="tab === 'presence'">
+      <div class="cfg-header">
+        <div>
+          <h2>Presencia</h2>
+          <p>Estado en vivo e historial de los sensores de presencia.</p>
+        </div>
+        <div class="report-actions">
+          <button class="btn-xs btn-edit" @click="loadPresenceStatus">Actualizar</button>
+          <button class="btn-xs btn-save" :disabled="presenceSessions.length === 0" @click="exportPresenceCSV">CSV</button>
+        </div>
+      </div>
+
+      <section class="cfg-card" style="margin-bottom:1rem">
+        <h3>Configuración</h3>
+        <div class="settings-grid">
+          <label class="toggle"><input type="checkbox" v-model="presenceSettings.enabled"> Monitor habilitado</label>
+          <label class="toggle"><input type="checkbox" v-model="presenceSettings.showOnLocation"> Mostrar en pantalla de sala</label>
+          <label class="toggle"><input type="checkbox" v-model="presenceSettings.showFreeOnLocation"> Mostrar baños libres</label>
+          <label class="toggle"><input type="checkbox" v-model="presenceSettings.alertEnabled"> Alerta por permanencia</label>
+          <div class="field"><label>Salida con gracia (s)</label><input type="number" min="0" max="300" v-model.number="presenceSettings.exitGraceS"></div>
+          <div class="field"><label>Sesión mínima (s)</label><input type="number" min="0" max="300" v-model.number="presenceSettings.minSessionS"></div>
+          <div class="field"><label>Sin datos tras (s)</label><input type="number" min="30" max="3600" v-model.number="presenceSettings.staleS"></div>
+          <div class="field"><label>Alerta a los (min)</label><input type="number" min="1" max="240" v-model.number="presenceSettings.longStayMin"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-xs btn-save" @click="savePresenceSettings">Guardar</button>
+          <span v-if="presenceSavedAt" class="assign-copy">Guardado ✓</span>
+        </div>
+      </section>
+
+      <section class="cfg-card" style="margin-bottom:1rem">
+        <h3>Estado en vivo</h3>
+        <div v-if="presenceCards.length" class="info-grid">
+          <section v-for="s in presenceCards" :key="s.deviceId" class="info-card presence-card" :class="['is-' + s.state, { 'is-alert': s.alert }]">
+            <div class="info-card-head">
+              <h3>{{ s.areaName }}</h3>
+              <span class="presence-badge" :class="s.state">{{ presenceCardLabel(s.state) }}</span>
+            </div>
+            <div class="presence-time">{{ presenceElapsed(s) || '—' }}</div>
+            <p class="assign-copy">{{ getDeviceName(s.deviceId) }} · {{ presenceRoleLabel(s.role) }}</p>
+            <p v-if="s.alert" class="presence-alert">Permanencia prolongada</p>
+          </section>
+        </div>
+        <p v-else class="assign-copy">Aún no hay sensores configurados.</p>
+      </section>
+
+      <section class="cfg-card" style="margin-bottom:1rem">
+        <h3>Asignar sensores</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Llamador</th><th>Rol</th><th>Área</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="d in callers" :key="d.deviceId">
+                <td>{{ d.name || d.deviceId }}<div class="sub mono">{{ d.deviceId }}</div></td>
+                <td>
+                  <select v-if="presenceDrafts[d.deviceId]" v-model="presenceDrafts[d.deviceId].role">
+                    <option value="">Sin sensor</option>
+                    <option value="bathroom">Baño</option>
+                    <option value="sillon">Sillón</option>
+                    <option value="cama">Cama</option>
+                  </select>
+                </td>
+                <td><input v-if="presenceDrafts[d.deviceId]" type="text" v-model="presenceDrafts[d.deviceId].areaName" placeholder="Baño 1" :disabled="!presenceDrafts[d.deviceId].role"></td>
+                <td><button class="btn-xs btn-save" @click="savePresenceSensor(d)">Guardar</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="cfg-card">
+        <div class="info-card-head"><h3>Historial</h3></div>
+        <div class="settings-grid">
+          <div class="field"><label>Desde</label><input type="datetime-local" v-model="presenceFilters.from"></div>
+          <div class="field"><label>Hasta</label><input type="datetime-local" v-model="presenceFilters.to"></div>
+          <div class="field"><label>Sensor</label><select v-model="presenceFilters.deviceId"><option value="">Todos</option><option v-for="s in presenceStatus.sensors" :key="s.deviceId" :value="s.deviceId">{{ s.areaName || s.deviceId }}</option></select></div>
+          <div class="field"><label>Solo abiertas</label><select v-model="presenceFilters.open"><option value="">No</option><option value="1">Sí</option></select></div>
+        </div>
+        <div class="modal-actions" style="margin-bottom:0.75rem">
+          <button class="btn-xs btn-edit" @click="loadPresenceSessions">Buscar</button>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto">
+          <table v-if="presenceSessions.length">
+            <thead><tr><th>Entrada</th><th>Área</th><th>Llamador</th><th>Salida</th><th>Duración</th><th>Motivo</th><th>Alerta</th></tr></thead>
+            <tbody><tr v-for="s in presenceSessions" :key="s.id">
+              <td class="mono">{{ formatDateTime(s.enteredAtMs) }}</td>
+              <td>{{ s.areaName || '—' }}</td>
+              <td>{{ getDeviceName(s.deviceId) }}</td>
+              <td class="mono">{{ s.exitedAtMs ? formatDateTime(s.exitedAtMs) : 'En curso' }}</td>
+              <td class="mono">{{ s.durationMs !== undefined ? formatMs(s.durationMs) : '—' }}</td>
+              <td>{{ s.closeReason || '—' }}</td>
+              <td><span v-if="s.alertSentAtMs" class="hbadge emergency">Sí</span><span v-else class="hbadge normal">No</span></td>
+            </tr></tbody>
+          </table>
+          <p v-else class="empty-state">Sin sesiones registradas.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ══════════════════════════════════════
          INFO VIEW — información del sistema
     ══════════════════════════════════════ -->
     <div v-show="tab === 'info'">
@@ -1536,7 +1649,7 @@
 </div>
 
 <script>
-const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
 
 createApp({
   setup() {
@@ -1698,11 +1811,12 @@ createApp({
       }
     });
 
-    socket.on('device_list',       (list)   => { devices.value = list; });
+    socket.on('device_list',       (list)   => { devices.value = list; ensurePresenceDrafts(); });
     socket.on('device_registered', (device) => {
       const idx = devices.value.findIndex(d => d.deviceId === device.deviceId);
       if (idx >= 0) devices.value[idx] = device;
       else devices.value.push(device);
+      ensurePresenceDrafts();
     });
     socket.on('device_presence', ({ deviceId, lastSeenMs, online }) => {
       const idx = devices.value.findIndex(d => d.deviceId === deviceId);
@@ -1717,6 +1831,17 @@ createApp({
     });
     socket.on('lamp_list', (list) => { lamps.value = list; });
     socket.on('patient_list', (list) => { patients.value = list; });
+    socket.on('presence_settings', (settings) => {
+      presenceStatus.value = { ...presenceStatus.value, settings };
+      presenceSettings.value = { ...settings };
+    });
+    socket.on('presence_state', (state) => {
+      const states = [...(presenceStatus.value.states || [])];
+      const idx = states.findIndex(s => s.deviceId === state.deviceId);
+      if (idx >= 0) states[idx] = state; else states.push(state);
+      presenceStatus.value = { ...presenceStatus.value, states };
+    });
+    socket.on('presence_session', () => { if (tab.value === 'presence') loadPresenceSessions(); });
     socket.on('lamp_assignments', ({ callerDeviceId, lampIds }) => {
       if (assignDevice.value?.deviceId === callerDeviceId) selectedLampIds.value = lampIds;
     });
@@ -1742,8 +1867,111 @@ createApp({
         locationSettings.value = s;
         applyGatewayStatus(g);
         loadSpecialLamps();
+        await loadPresenceStatus();
       } catch (e) { console.error('load failed', e); }
     };
+
+    // ── Presencia ──
+    const presenceStatus = ref({ settings: {}, sensors: [], states: [] });
+    const presenceSettings = ref({
+      enabled: false, showOnLocation: false, showFreeOnLocation: true,
+      exitGraceS: 20, minSessionS: 5, staleS: 180, longStayMin: 15, alertEnabled: true,
+    });
+    const presenceSessions = ref([]);
+    const presenceFilters = ref({ from: '', to: '', deviceId: '', open: '' });
+    const presenceSavedAt = ref(0);
+    const presenceDrafts = reactive({});
+
+    const ensurePresenceDrafts = () => {
+      for (const d of callers.value) {
+        if (!presenceDrafts[d.deviceId]) presenceDrafts[d.deviceId] = { role: '', areaName: '' };
+        const sensor = (presenceStatus.value.sensors || []).find(s => s.deviceId === d.deviceId);
+        presenceDrafts[d.deviceId].role = sensor?.role || '';
+        presenceDrafts[d.deviceId].areaName = sensor?.areaName || '';
+      }
+    };
+
+    const loadPresenceStatus = async () => {
+      try {
+        const data = await fetch('/presence/status').then(r => r.json());
+        presenceStatus.value = data;
+        presenceSettings.value = { ...data.settings };
+        ensurePresenceDrafts();
+      } catch (e) { console.error('loadPresenceStatus failed', e); }
+    };
+
+    const savePresenceSettings = async () => {
+      try {
+        const response = await fetch('/presence/settings', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(presenceSettings.value),
+        });
+        if (!response.ok) throw new Error('No se pudo guardar');
+        const settings = await response.json();
+        presenceStatus.value = { ...presenceStatus.value, settings };
+        presenceSettings.value = { ...settings };
+        presenceSavedAt.value = Date.now();
+        setTimeout(() => { presenceSavedAt.value = 0; }, 2500);
+      } catch (e) { console.error('savePresenceSettings failed', e); }
+    };
+
+    const savePresenceSensor = async (device) => {
+      const draft = presenceDrafts[device.deviceId];
+      if (!draft) return;
+      try {
+        const url = `/presence/sensors/${encodeURIComponent(device.deviceId)}`;
+        const response = draft.role
+          ? await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: draft.role, areaName: draft.areaName }) })
+          : await fetch(url, { method: 'DELETE' });
+        if (!response.ok) throw new Error('No se pudo guardar el sensor');
+        await loadPresenceStatus();
+      } catch (e) { console.error('savePresenceSensor failed', e); }
+    };
+
+    const presenceQuery = () => {
+      const params = new URLSearchParams();
+      if (presenceFilters.value.from) params.set('from', new Date(presenceFilters.value.from).toISOString());
+      if (presenceFilters.value.to) params.set('to', new Date(presenceFilters.value.to).toISOString());
+      if (presenceFilters.value.deviceId) params.set('deviceId', presenceFilters.value.deviceId);
+      if (presenceFilters.value.open) params.set('open', '1');
+      return params.toString();
+    };
+
+    const loadPresenceSessions = async () => {
+      try {
+        const query = presenceQuery();
+        const data = await fetch(`/presence/sessions${query ? '?' + query : ''}`).then(r => r.json());
+        presenceSessions.value = data.items || [];
+      } catch (e) { console.error('loadPresenceSessions failed', e); }
+    };
+
+    const exportPresenceCSV = () => {
+      const query = presenceQuery();
+      window.open(`/presence/sessions.csv${query ? '?' + query : ''}`, '_blank');
+    };
+
+    const presenceCardLabel = (state) => state === 'occupied' ? 'Ocupado' : state === 'free' ? 'Libre' : 'Sin datos';
+    const presenceRoleLabel = (role) => role === 'sillon' ? 'Sillón' : role === 'cama' ? 'Cama' : 'Baño';
+
+    const presenceElapsed = (state) => {
+      if (state.state !== 'occupied' || !state.enteredAtMs) return '';
+      const total = Math.max(0, Math.floor((now.value - state.enteredAtMs) / 1000));
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      return h > 0
+        ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    const presenceCards = computed(() => {
+      const order = { occupied: 0, unknown: 1, free: 2 };
+      return [...(presenceStatus.value.states || [])].sort((a, b) => {
+        if (a.alert !== b.alert) return a.alert ? -1 : 1;
+        const oa = order[a.state] ?? 3, ob = order[b.state] ?? 3;
+        if (oa !== ob) return oa - ob;
+        return String(a.areaName).localeCompare(String(b.areaName), 'es');
+      });
+    });
 
     // ── Reportes ──
     const reportFilters = ref({ from: '', to: '', deviceId: '', patient: '', callType: '', onTime: '', finishOrigin: '' });
@@ -2408,6 +2636,9 @@ createApp({
 
     return {
       networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics, clearPendingCommands, clearingPendingCommands,
+      presenceStatus, presenceSettings, presenceSessions, presenceFilters, presenceSavedAt, presenceDrafts, presenceCards,
+      ensurePresenceDrafts, loadPresenceStatus, savePresenceSettings, savePresenceSensor, loadPresenceSessions, exportPresenceCSV,
+      presenceCardLabel, presenceRoleLabel, presenceElapsed,
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
       patients, patientForm, patientSaving, patientError, patientMessage, assignedPatientName, openPatient, closePatient, savePatient, unassignPatient, removePatient, resendPatient,
       tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV,

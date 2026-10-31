@@ -44,6 +44,10 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const testVoice/);
       assert.match(script, /const formatDate/);
       assert.match(html, /msx-date/);
+      assert.match(html, /Presencia/);
+      assert.match(script, /const loadPresenceStatus/);
+      assert.match(script, /presenceDrafts/);
+      assert.match(html, /presence-card/);
       assert.doesNotMatch(script, /bell\.mp3/);
       assert.doesNotMatch(script, /chime\.mp3/);
     } else {
@@ -58,6 +62,9 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const cancelSpeech/);
       assert.match(script, /const playFallbackSound/);
       assert.match(script, /voiceschanged/);
+      assert.match(script, /showPresenceStrip/);
+      assert.match(script, /presenceChips/);
+      assert.match(html, /presence-strip/);
       assert.match(script, /hay un llamado de emergencia pendiente por finalizar/);
       assert.match(script, /hay llamados de emergencia pendientes por finalizar/);
       assert.match(script, /hay un llamado pendiente por finalizar/);
@@ -147,12 +154,26 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
     const pageResponse = await fetch(base + "/");
     assert.match(pageResponse.headers.get("cache-control") || "", /no-cache/);
 
+    assert.equal((await request("/presence/sensors/CALLER000001", "PUT", { role: "bathroom", areaName: "Baño 1" })).status, 200);
+    let presence = (await request("/presence/status")).data;
+    assert.equal(presence.sensors.length, 1);
+    assert.equal(presence.sensors[0].areaName, "Baño 1");
+    assert.equal(presence.settings.enabled, false);
+    assert.equal((await request("/presence/settings", "PATCH", { enabled: true, showOnLocation: true })).data.enabled, true);
+    assert.equal((await request("/presence/sessions")).data.items.length, 0);
+    const presenceCsv = await fetch(base + "/presence/sessions.csv");
+    assert.equal(presenceCsv.status, 200);
+    assert.match(presenceCsv.headers.get("content-type") || "", /text\/csv/);
+    assert.equal((await request("/presence/sensors/CALLER999", "PUT", { role: "bathroom" })).status, 404);
+
     assert.equal((await request("/devices/CALLER000001", "PATCH", { name: "Cama dos" })).status, 200);
     diagnostics = (await request("/network/diagnostics")).data;
     assert.ok(diagnostics.pendingCommands.some((c: any) => c.kind === "name"));
     assert.equal((await request("/devices/CALLER000001", "DELETE")).status, 200);
     diagnostics = (await request("/network/diagnostics")).data;
     assert.equal(diagnostics.pendingCommands.length, 0);
+    presence = (await request("/presence/status")).data;
+    assert.equal(presence.sensors.length, 0);
   } finally {
     const exited = new Promise(resolve => child.once("exit", resolve));
     if (child.exitCode === null) { child.kill(); await exited; }

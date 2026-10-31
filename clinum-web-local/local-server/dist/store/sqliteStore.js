@@ -10,6 +10,13 @@ function ensureDir(filePath) {
     }
     catch { /* ignore */ }
 }
+function normalizePresenceRole(value) {
+    if (value === "sillon")
+        return "sillon";
+    if (value === "cama" || value === "bed")
+        return "cama";
+    return "bathroom";
+}
 // ── SqliteStore ───────────────────────────────────────────────────────────────
 export class SqliteStore {
     db;
@@ -186,8 +193,48 @@ export class SqliteStore {
         name          TEXT PRIMARY KEY,
         applied_at_ms INTEGER NOT NULL DEFAULT 0
       );
+
+      -- Monitor de presencia (baños/camas). Todo aditivo: se puede desactivar
+      -- por flags sin tocar el flujo de llamados ni las lámparas.
+      CREATE TABLE IF NOT EXISTS presence_sensors (
+        device_id     TEXT PRIMARY KEY,
+        role          TEXT NOT NULL DEFAULT 'bathroom',
+        area_name     TEXT NOT NULL DEFAULT '',
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        created_at_ms INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS presence_sessions (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id         TEXT NOT NULL,
+        role              TEXT NOT NULL DEFAULT 'bathroom',
+        area_name         TEXT NOT NULL DEFAULT '',
+        patient_id        TEXT,
+        patient_name      TEXT NOT NULL DEFAULT '',
+        entered_at_ms     INTEGER NOT NULL,
+        last_seen_at_ms   INTEGER NOT NULL,
+        exited_at_ms      INTEGER,
+        duration_ms       INTEGER,
+        close_reason      TEXT NOT NULL DEFAULT '',
+        alert_sent_at_ms  INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_presence_sessions_device ON presence_sessions(device_id);
+      CREATE INDEX IF NOT EXISTS idx_presence_sessions_entered ON presence_sessions(entered_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_presence_sessions_open ON presence_sessions(exited_at_ms);
+      CREATE TABLE IF NOT EXISTS presence_settings (
+        id                    INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled               INTEGER NOT NULL DEFAULT 0,
+        show_on_location      INTEGER NOT NULL DEFAULT 0,
+        show_free_on_location INTEGER NOT NULL DEFAULT 1,
+        exit_grace_s          INTEGER NOT NULL DEFAULT 20,
+        min_session_s         INTEGER NOT NULL DEFAULT 5,
+        stale_s               INTEGER NOT NULL DEFAULT 180,
+        long_stay_min         INTEGER NOT NULL DEFAULT 15,
+        alert_enabled         INTEGER NOT NULL DEFAULT 1
+      );
     `);
         this.db.prepare("INSERT OR IGNORE INTO location_settings (id) VALUES (1)").run();
+        this.db.prepare("INSERT OR IGNORE INTO presence_settings (id) VALUES (1)").run();
         const normalColorMigration = this.db.prepare("SELECT name FROM schema_migrations WHERE name = ?").get("normal_call_color_green");
         if (!normalColorMigration) {
             this.db.prepare("UPDATE location_settings SET normal_call_color = '#22c55e' WHERE normal_call_color = '#0ea5e9'").run();
@@ -513,6 +560,7 @@ export class SqliteStore {
             this.db.prepare("DELETE FROM seq_tracker   WHERE device_id = ?").run(deviceId);
             this.db.prepare("DELETE FROM event_receipts WHERE device_id = ?").run(deviceId);
             this.db.prepare("DELETE FROM pending_commands WHERE device_id = ?").run(deviceId);
+            this.db.prepare("DELETE FROM presence_sensors WHERE device_id = ?").run(deviceId);
             return this.db.prepare("DELETE FROM devices WHERE device_id = ?").run(deviceId);
         })();
         return result.changes > 0;
@@ -750,6 +798,148 @@ export class SqliteStore {
       WHERE id = 1
     `).run((values.name ?? current.name).trim() || current.name, clamp(values.attentionTimeMin ?? current.attentionTimeMin ?? 5, 1, 10, 5), values.backgroundColor ?? current.backgroundColor, values.headerColor ?? current.headerColor, values.textColor ?? current.textColor, values.normalCallColor ?? current.normalCallColor, values.emergencyCallColor ?? current.emergencyCallColor, values.timerColor ?? current.timerColor, (values.soundEnabled ?? current.soundEnabled) ? 1 : 0, clamp(values.soundVolume ?? current.soundVolume, 0, 100, current.soundVolume), values.alertSound ?? current.alertSound, values.emergencySound ?? current.emergencySound, (values.voiceEnabled ?? current.voiceEnabled) ? 1 : 0, clamp(values.voiceRate ?? current.voiceRate, 0.5, 2, current.voiceRate), clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch), clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume), (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0, clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 5, 900, 120), clamp(values.uiScalePercent ?? current.uiScalePercent ?? 100, 50, 200, 100));
         return this.getLocationSettings();
+    }
+    // ── Presence monitor ──────────────────────────────────────────────────────
+    _rowToPresenceSensor(row) {
+        return {
+            deviceId: row.device_id,
+            role: normalizePresenceRole(row.role),
+            areaName: row.area_name || "",
+            enabled: Boolean(row.enabled),
+            createdAtMs: Number(row.created_at_ms ?? 0),
+            updatedAtMs: Number(row.updated_at_ms ?? 0),
+        };
+    }
+    _rowToPresenceSession(row) {
+        return {
+            id: Number(row.id),
+            deviceId: row.device_id,
+            role: normalizePresenceRole(row.role),
+            areaName: row.area_name || "",
+            patientId: row.patient_id === null || row.patient_id === undefined ? undefined : String(row.patient_id),
+            patientName: row.patient_name || "",
+            enteredAtMs: Number(row.entered_at_ms ?? 0),
+            lastSeenAtMs: Number(row.last_seen_at_ms ?? 0),
+            exitedAtMs: row.exited_at_ms === null || row.exited_at_ms === undefined ? undefined : Number(row.exited_at_ms),
+            durationMs: row.duration_ms === null || row.duration_ms === undefined ? undefined : Number(row.duration_ms),
+            closeReason: row.close_reason || "",
+            alertSentAtMs: Number(row.alert_sent_at_ms ?? 0),
+        };
+    }
+    getPresenceSensors() {
+        return this.db.prepare("SELECT * FROM presence_sensors ORDER BY area_name COLLATE NOCASE, device_id").all()
+            .map(row => this._rowToPresenceSensor(row));
+    }
+    getPresenceSensor(deviceId) {
+        const row = this.db.prepare("SELECT * FROM presence_sensors WHERE device_id = ?").get(deviceId);
+        return row ? this._rowToPresenceSensor(row) : undefined;
+    }
+    upsertPresenceSensor(deviceId, role, areaName, enabled = true) {
+        const now = Date.now();
+        const safeRole = normalizePresenceRole(role);
+        const safeArea = String(areaName ?? "").trim().slice(0, 60);
+        this.db.prepare(`
+      INSERT INTO presence_sensors (device_id, role, area_name, enabled, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(device_id) DO UPDATE SET
+        role = excluded.role, area_name = excluded.area_name,
+        enabled = excluded.enabled, updated_at_ms = excluded.updated_at_ms
+    `).run(deviceId, safeRole, safeArea, enabled ? 1 : 0, now, now);
+        return this.getPresenceSensor(deviceId);
+    }
+    deletePresenceSensor(deviceId) {
+        return this.db.prepare("DELETE FROM presence_sensors WHERE device_id = ?").run(deviceId).changes > 0;
+    }
+    getPresenceSettings() {
+        const row = this.db.prepare("SELECT * FROM presence_settings WHERE id = 1").get();
+        return {
+            enabled: Boolean(row.enabled),
+            showOnLocation: Boolean(row.show_on_location),
+            showFreeOnLocation: Boolean(row.show_free_on_location ?? 1),
+            exitGraceS: Number(row.exit_grace_s ?? 20) || 20,
+            minSessionS: Number(row.min_session_s ?? 5) || 5,
+            staleS: Number(row.stale_s ?? 180) || 180,
+            longStayMin: Number(row.long_stay_min ?? 15) || 15,
+            alertEnabled: Boolean(row.alert_enabled ?? 1),
+        };
+    }
+    updatePresenceSettings(values) {
+        const current = this.getPresenceSettings();
+        const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, Number.isFinite(value) ? value : fallback));
+        this.db.prepare(`
+      UPDATE presence_settings SET
+        enabled = ?, show_on_location = ?, show_free_on_location = ?,
+        exit_grace_s = ?, min_session_s = ?, stale_s = ?, long_stay_min = ?, alert_enabled = ?
+      WHERE id = 1
+    `).run((values.enabled ?? current.enabled) ? 1 : 0, (values.showOnLocation ?? current.showOnLocation) ? 1 : 0, (values.showFreeOnLocation ?? current.showFreeOnLocation) ? 1 : 0, clamp(values.exitGraceS ?? current.exitGraceS, 0, 300, current.exitGraceS), clamp(values.minSessionS ?? current.minSessionS, 0, 300, current.minSessionS), clamp(values.staleS ?? current.staleS, 30, 3600, current.staleS), clamp(values.longStayMin ?? current.longStayMin, 1, 240, current.longStayMin), (values.alertEnabled ?? current.alertEnabled) ? 1 : 0);
+        return this.getPresenceSettings();
+    }
+    openPresenceSession(deviceId, role, areaName, enteredAtMs, lastSeenAtMs) {
+        const result = this.db.prepare(`
+      INSERT INTO presence_sessions (device_id, role, area_name, patient_id, patient_name, entered_at_ms, last_seen_at_ms, close_reason, alert_sent_at_ms)
+      VALUES (?, ?, ?, NULL, '', ?, ?, '', 0)
+    `).run(deviceId, role, areaName, enteredAtMs, lastSeenAtMs);
+        return this.getPresenceSession(Number(result.lastInsertRowid));
+    }
+    getPresenceSession(id) {
+        const row = this.db.prepare("SELECT * FROM presence_sessions WHERE id = ?").get(id);
+        return row ? this._rowToPresenceSession(row) : undefined;
+    }
+    getOpenPresenceSession(deviceId) {
+        const row = this.db.prepare("SELECT * FROM presence_sessions WHERE device_id = ? AND exited_at_ms IS NULL ORDER BY id DESC LIMIT 1").get(deviceId);
+        return row ? this._rowToPresenceSession(row) : undefined;
+    }
+    getOpenPresenceSessions() {
+        return this.db.prepare("SELECT * FROM presence_sessions WHERE exited_at_ms IS NULL ORDER BY entered_at_ms").all()
+            .map(row => this._rowToPresenceSession(row));
+    }
+    touchPresenceSession(id, lastSeenAtMs) {
+        this.db.prepare("UPDATE presence_sessions SET last_seen_at_ms = ? WHERE id = ? AND exited_at_ms IS NULL").run(lastSeenAtMs, id);
+    }
+    markPresenceSessionAlert(id, atMs) {
+        this.db.prepare("UPDATE presence_sessions SET alert_sent_at_ms = ? WHERE id = ? AND exited_at_ms IS NULL").run(atMs, id);
+    }
+    closePresenceSession(id, exitedAtMs, closeReason, minDurationMs = 0) {
+        const session = this.getPresenceSession(id);
+        if (!session || session.exitedAtMs !== undefined)
+            return session;
+        const durationMs = Math.max(0, exitedAtMs - session.enteredAtMs);
+        if (minDurationMs > 0 && durationMs < minDurationMs) {
+            this.db.prepare("DELETE FROM presence_sessions WHERE id = ?").run(id);
+            return undefined;
+        }
+        this.db.prepare("UPDATE presence_sessions SET exited_at_ms = ?, duration_ms = ?, close_reason = ? WHERE id = ?")
+            .run(exitedAtMs, durationMs, closeReason, id);
+        return this.getPresenceSession(id);
+    }
+    closeAllOpenPresenceSessions(closeReason, atMs) {
+        let closed = 0;
+        for (const session of this.getOpenPresenceSessions()) {
+            if (this.closePresenceSession(session.id, atMs, closeReason))
+                closed++;
+        }
+        return closed;
+    }
+    getPresenceSessions(filter = {}) {
+        const where = [];
+        const params = [];
+        if (filter.deviceId) {
+            where.push("device_id = ?");
+            params.push(filter.deviceId);
+        }
+        if (filter.fromMs !== undefined) {
+            where.push("entered_at_ms >= ?");
+            params.push(filter.fromMs);
+        }
+        if (filter.toMs !== undefined) {
+            where.push("entered_at_ms <= ?");
+            params.push(filter.toMs);
+        }
+        if (filter.openOnly)
+            where.push("exited_at_ms IS NULL");
+        const limit = Math.max(1, Math.min(5000, Math.floor(filter.limit ?? 500)));
+        const sql = `SELECT * FROM presence_sessions${where.length ? " WHERE " + where.join(" AND ") : ""} ORDER BY entered_at_ms DESC LIMIT ${limit}`;
+        return this.db.prepare(sql).all(...params).map(row => this._rowToPresenceSession(row));
     }
     // ── Calls ─────────────────────────────────────────────────────────────────
     applyCallStart(deviceId, seq, cons, callType) {

@@ -71,6 +71,56 @@ export type LocationSettings = {
   uiScalePercent: number;
 };
 
+export type PresenceRole = "bathroom" | "sillon" | "cama";
+
+export type PresenceSensor = {
+  deviceId: string;
+  role: PresenceRole;
+  areaName: string;
+  enabled: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type PresenceSession = {
+  id: number;
+  deviceId: string;
+  role: PresenceRole;
+  areaName: string;
+  patientId?: string;
+  patientName: string;
+  enteredAtMs: number;
+  lastSeenAtMs: number;
+  exitedAtMs?: number;
+  durationMs?: number;
+  closeReason: string;
+  alertSentAtMs: number;
+};
+
+export type PresenceSettings = {
+  enabled: boolean;
+  showOnLocation: boolean;
+  showFreeOnLocation: boolean;
+  exitGraceS: number;
+  minSessionS: number;
+  staleS: number;
+  longStayMin: number;
+  alertEnabled: boolean;
+};
+
+export type PresenceStateValue = "free" | "occupied" | "unknown";
+
+export type PresenceState = {
+  deviceId: string;
+  role: PresenceRole;
+  areaName: string;
+  state: PresenceStateValue;
+  sessionId?: number;
+  enteredAtMs?: number;
+  lastSeenAtMs?: number;
+  alert: boolean;
+};
+
 export type IncomingFrame = {
   msgType: "register" | "call_start" | "call_insist" | "call_end" | "heartbeat" | "config_ack" |
     "presence" |

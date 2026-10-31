@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { config } from "./config.js";
-import type { AckFrame, ConfigUpdateFrame, DeviceRecord, GatewayControlFrame, GatewaySiteConfig, IncomingFrame, LampEffectiveState, LampStateFrame, LocationSettings, CallType, PatientInput } from "./types.js";
+import type { AckFrame, ConfigUpdateFrame, DeviceRecord, GatewayControlFrame, GatewaySiteConfig, IncomingFrame, LampEffectiveState, LampStateFrame, LocationSettings, CallType, PatientInput, PresenceRole, PresenceSensor, PresenceSession, PresenceSettings, PresenceState } from "./types.js";
 import { isSpecialCallType, SPECIAL_CALL_TYPES } from "./types.js";
 import { isTactileFirmware } from "./deviceTypes.js";
 import { SqliteStore } from "./store/sqliteStore.js";
@@ -52,6 +52,8 @@ const hub = new RealtimeHub(app.server, (socket) => {
   socket.emit("call_history", store.getCallHistory());
   socket.emit("location_settings", store.getLocationSettings());
   socket.emit("patient_list", store.getPatients());
+  socket.emit("presence_settings", store.getPresenceSettings());
+  for (const sensor of store.getPresenceSensors()) socket.emit("presence_state", presenceSensorState(sensor));
 });
 
 const devicePresenceSentAt = new Map<string, number>();
@@ -62,6 +64,128 @@ function publishDevicePresence(device: DeviceRecord): void {
   if (now - (devicePresenceSentAt.get(device.deviceId) ?? 0) < DEVICE_PRESENCE_THROTTLE_MS) return;
   devicePresenceSentAt.set(device.deviceId, now);
   hub.publishDevicePresence(device.deviceId, device.lastSeenMs, device.online);
+}
+
+// ── Monitor de presencia (baños/camas) ──────────────────────────────────────
+// Independiente del estado "presence" de las lámparas: ese flujo no se toca.
+type PresenceRuntime = {
+  present: boolean;
+  lastSeenAtMs: number;
+  sessionId?: number;
+  enteredAtMs?: number;
+  exitDeadlineMs?: number;
+  alertSent: boolean;
+};
+const presenceRuntime = new Map<string, PresenceRuntime>();
+
+function presenceSensorState(sensor: PresenceSensor, now = Date.now()): PresenceState {
+  const settings = store.getPresenceSettings();
+  const runtime = presenceRuntime.get(sensor.deviceId);
+  const open = runtime?.sessionId ? store.getPresenceSession(runtime.sessionId) : store.getOpenPresenceSession(sensor.deviceId);
+  const lastSeenAtMs = runtime?.lastSeenAtMs ?? open?.lastSeenAtMs ?? 0;
+  const stale = lastSeenAtMs > 0 && now - lastSeenAtMs >= settings.staleS * 1000;
+  const occupied = Boolean(open);
+  const alert = Boolean(open && (open.alertSentAtMs > 0 ||
+    (settings.alertEnabled && now - open.enteredAtMs >= settings.longStayMin * 60_000)));
+  return {
+    deviceId: sensor.deviceId,
+    role: sensor.role,
+    areaName: sensor.areaName || sensor.deviceId,
+    state: occupied ? (stale ? "unknown" : "occupied") : (stale || !runtime ? "unknown" : "free"),
+    sessionId: open?.id,
+    enteredAtMs: open?.enteredAtMs,
+    lastSeenAtMs: lastSeenAtMs || undefined,
+    alert,
+  };
+}
+
+function publishPresenceState(deviceId: string): void {
+  const sensor = store.getPresenceSensor(deviceId);
+  if (!sensor) return;
+  hub.publishPresenceState(presenceSensorState(sensor));
+}
+
+function closePresenceRuntimeSession(deviceId: string, exitedAtMs: number, reason: string): void {
+  const runtime = presenceRuntime.get(deviceId);
+  if (!runtime?.sessionId) return;
+  const settings = store.getPresenceSettings();
+  const closed = store.closePresenceSession(runtime.sessionId, exitedAtMs, reason, settings.minSessionS * 1000);
+  runtime.sessionId = undefined;
+  runtime.enteredAtMs = undefined;
+  runtime.exitDeadlineMs = undefined;
+  runtime.alertSent = false;
+  if (closed) hub.publishPresenceSession(closed);
+  publishPresenceState(deviceId);
+}
+
+function handlePresenceMonitor(deviceId: string, present: boolean, now: number): void {
+  const settings = store.getPresenceSettings();
+  if (!settings.enabled) return;
+  const sensor = store.getPresenceSensor(deviceId);
+  if (!sensor || !sensor.enabled) return;
+  const runtime = presenceRuntime.get(deviceId) ?? { present: false, lastSeenAtMs: 0, alertSent: false };
+  runtime.lastSeenAtMs = now;
+  if (present) {
+    runtime.present = true;
+    runtime.exitDeadlineMs = undefined;
+    if (!runtime.sessionId) {
+      const existing = store.getOpenPresenceSession(deviceId);
+      if (existing) {
+        runtime.sessionId = existing.id;
+        runtime.enteredAtMs = existing.enteredAtMs;
+        runtime.alertSent = existing.alertSentAtMs > 0;
+        store.touchPresenceSession(existing.id, now);
+      } else {
+        const session = store.openPresenceSession(deviceId, sensor.role, sensor.areaName, now, now);
+        runtime.sessionId = session.id;
+        runtime.enteredAtMs = session.enteredAtMs;
+        runtime.alertSent = false;
+        hub.publishPresenceSession(session);
+      }
+    } else {
+      store.touchPresenceSession(runtime.sessionId, now);
+    }
+  } else {
+    runtime.present = false;
+    if (runtime.sessionId && !runtime.exitDeadlineMs) {
+      runtime.exitDeadlineMs = now + settings.exitGraceS * 1000;
+    }
+  }
+  presenceRuntime.set(deviceId, runtime);
+  publishPresenceState(deviceId);
+}
+
+function sweepPresenceMonitor(now = Date.now()): void {
+  const settings = store.getPresenceSettings();
+  if (!settings.enabled) return;
+  for (const [deviceId, runtime] of presenceRuntime) {
+    const sensor = store.getPresenceSensor(deviceId);
+    if (!sensor || !sensor.enabled) {
+      closePresenceRuntimeSession(deviceId, now, "sensor_disabled");
+      presenceRuntime.delete(deviceId);
+      continue;
+    }
+    if (!runtime.sessionId) {
+      if (runtime.lastSeenAtMs > 0 && now - runtime.lastSeenAtMs >= settings.staleS * 1000) publishPresenceState(deviceId);
+      continue;
+    }
+    if (now - runtime.lastSeenAtMs >= settings.staleS * 1000) {
+      closePresenceRuntimeSession(deviceId, runtime.lastSeenAtMs || now, "timeout");
+      continue;
+    }
+    if (runtime.exitDeadlineMs && now >= runtime.exitDeadlineMs) {
+      closePresenceRuntimeSession(deviceId, runtime.exitDeadlineMs, "sensor");
+      continue;
+    }
+    if (settings.alertEnabled && !runtime.alertSent && runtime.enteredAtMs &&
+        now - runtime.enteredAtMs >= settings.longStayMin * 60_000) {
+      store.markPresenceSessionAlert(runtime.sessionId, now);
+      runtime.alertSent = true;
+      const session = store.getPresenceSession(runtime.sessionId);
+      if (session) hub.publishPresenceSession(session);
+      publishPresenceState(deviceId);
+    }
+  }
 }
 
 const gateway = new SerialGateway(config.serialPort, config.serialBaud, {
@@ -569,6 +693,7 @@ async function handleFrame(frame: IncomingFrame): Promise<void> {
     const callerLamps = store.getLampIdsForCaller(frame.deviceId);
     console.log(`[PRESENCE] deviceId=${frame.deviceId} state=${presenceDetected ? "DETECTED" : "NONE"} lamps=${JSON.stringify(callerLamps)} devicePresenceMap=${JSON.stringify(Object.fromEntries(devicePresence))}`);
     syncCallerLamps(frame.deviceId);
+    handlePresenceMonitor(frame.deviceId, presenceDetected, Date.now());
     return;
   }
 
@@ -951,6 +1076,8 @@ app.delete<{ Params: { id: string } }>("/devices/:id", async (req, reply) => {
   const { id } = req.params;
   const deleted = store.deleteDevice(id);
   if (!deleted) return reply.status(404).send({ error: "Device not found" });
+  if (presenceRuntime.get(id)?.sessionId) closePresenceRuntimeSession(id, Date.now(), "device_deleted");
+  presenceRuntime.delete(id);
   pendingEndCommands.delete(id);
   pendingTransportCommands.delete(id);
   confirmedEndCalls.delete(id);
@@ -1105,10 +1232,93 @@ app.post<{ Params: { id: string }; Querystring: { callType?: string } }>("/calls
   return { ok: true, delivery: isSpecial ? "local" : "pending" };
 });
 
+// ── Presence monitor API ─────────────────────────────────────────────────────
+
+function presenceStatusPayload() {
+  const settings = store.getPresenceSettings();
+  const sensors = store.getPresenceSensors();
+  return { settings, sensors, states: sensors.map(sensor => presenceSensorState(sensor)) };
+}
+
+function presenceSessionsFromQuery(query: { from?: string; to?: string; deviceId?: string; open?: string; limit?: string }) {
+  const fromMs = query.from ? Date.parse(query.from) : NaN;
+  const toMs = query.to ? Date.parse(query.to) : NaN;
+  return store.getPresenceSessions({
+    fromMs: Number.isFinite(fromMs) ? fromMs : undefined,
+    toMs: Number.isFinite(toMs) ? toMs : undefined,
+    deviceId: query.deviceId || undefined,
+    openOnly: query.open === "1" || query.open === "true",
+    limit: query.limit ? Number(query.limit) : undefined,
+  });
+}
+
+function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+app.get("/presence/status", async () => presenceStatusPayload());
+app.get("/presence/settings", async () => store.getPresenceSettings());
+
+app.patch<{ Body: Partial<PresenceSettings> }>("/presence/settings", async (req) => {
+  const settings = store.updatePresenceSettings(req.body ?? {});
+  if (!settings.enabled) {
+    for (const [deviceId, runtime] of presenceRuntime) {
+      if (runtime.sessionId) closePresenceRuntimeSession(deviceId, Date.now(), "disabled");
+    }
+  }
+  hub.publishPresenceSettings(settings);
+  return settings;
+});
+
+app.put<{ Params: { deviceId: string }; Body: { role?: string; areaName?: string; enabled?: boolean } }>("/presence/sensors/:deviceId", async (req, reply) => {
+  const { deviceId } = req.params;
+  if (!store.getDevice(deviceId)) return reply.status(404).send({ error: "Device not found" });
+  const requestedRole = req.body?.role;
+  const role: PresenceRole = requestedRole === "sillon" ? "sillon"
+    : (requestedRole === "cama" || requestedRole === "bed") ? "cama" : "bathroom";
+  const areaName = String(req.body?.areaName ?? "").trim();
+  const sensor = store.upsertPresenceSensor(deviceId, role, areaName, req.body?.enabled !== false);
+  publishPresenceState(deviceId);
+  return sensor;
+});
+
+app.delete<{ Params: { deviceId: string } }>("/presence/sensors/:deviceId", async (req) => {
+  const { deviceId } = req.params;
+  if (presenceRuntime.get(deviceId)?.sessionId) closePresenceRuntimeSession(deviceId, Date.now(), "sensor_removed");
+  presenceRuntime.delete(deviceId);
+  const deleted = store.deletePresenceSensor(deviceId);
+  return { ok: true, deleted };
+});
+
+app.get<{ Querystring: { from?: string; to?: string; deviceId?: string; open?: string; limit?: string } }>("/presence/sessions", async (req) => ({ items: presenceSessionsFromQuery(req.query) }));
+
+app.get<{ Querystring: { from?: string; to?: string; deviceId?: string; open?: string; limit?: string } }>("/presence/sessions.csv", async (req, reply) => {
+  const items = presenceSessionsFromQuery(req.query);
+  const header = ["id", "dispositivo", "area", "rol", "entrada", "salida", "duracion_s", "motivo", "alerta"].join(",");
+  const lines = items.map(session => [
+    session.id,
+    session.deviceId,
+    session.areaName,
+    session.role,
+    new Date(session.enteredAtMs).toISOString(),
+    session.exitedAtMs ? new Date(session.exitedAtMs).toISOString() : "",
+    session.durationMs !== undefined ? Math.round(session.durationMs / 1000) : "",
+    session.closeReason,
+    session.alertSentAtMs > 0 ? "si" : "no",
+  ].map(csvCell).join(","));
+  reply.header("Content-Type", "text/csv; charset=utf-8");
+  reply.header("Content-Disposition", `attachment; filename="presencia-${new Date().toISOString().slice(0, 10)}.csv"`);
+  return [header, ...lines].join("\n");
+});
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 async function bootstrap(): Promise<void> {
   store.markAllOffline();
+  // Las sesiones de presencia no sobreviven a un reinicio: se cierran para no
+  // dejar baños "ocupados" fantasma. El historial se conserva.
+  store.closeAllOpenPresenceSessions("server_restart", Date.now());
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
@@ -1184,6 +1394,7 @@ async function bootstrap(): Promise<void> {
   setInterval(retryPatients, 1000);
   setInterval(retryDeviceNames, 1000);
   setInterval(() => gateway.requestGatewayStatus(), 2000);
+  setInterval(() => sweepPresenceMonitor(), 5000);
 
   // Presencia: la UI usa lastSeenMs con una ventana de 90 s. El barrido mantiene
   // online coherente en BD y notifica a los navegadores cuando algo expira.
