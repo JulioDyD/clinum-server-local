@@ -381,8 +381,17 @@ createApp({
     };
     const enqueueSpeech = (item) => {
       if (item.pendingReminder) {
-        // Un solo recordatorio en cola: no acumular avisos repetidos.
-        if (speechQueue.value.some(x => x.pendingReminder)) return;
+        // Un solo recordatorio en cola: actualizar el existente en vez de acumular.
+        const queued = speechQueue.value.find(x => x.pendingReminder);
+        if (queued) {
+          if (item.isEmergency) {
+            queued.isEmergency = true;
+            queued.count = item.count;
+          } else if (!queued.isEmergency) {
+            queued.count = item.count;
+          }
+          return;
+        }
       } else if (item.deviceId) {
         // Si el mismo llamador vuelve a insistir, reemplaza el anuncio viejo.
         const duplicate = speechQueue.value.findIndex(x => x.deviceId === item.deviceId);
@@ -401,7 +410,13 @@ createApp({
       if (!('speechSynthesis' in window)) { speechQueue.value = []; return; }
       const item = speechQueue.value.shift();
       const message = item.pendingReminder
-        ? 'hay llamados pendientes por finalizar'
+        ? (item.isEmergency
+            ? ((item.count || 0) > 1
+                ? 'hay llamados de emergencia pendientes por finalizar'
+                : 'hay un llamado de emergencia pendiente por finalizar')
+            : ((item.count || 0) > 1
+                ? 'hay llamados pendientes por finalizar'
+                : 'hay un llamado pendiente por finalizar'))
         : (item.isEmergency ? `Llamado de emergencia desde ${item.callerName}` : `Llamado desde ${item.callerName}`);
       const utterance = new SpeechSynthesisUtterance(message);
       utterance.lang = 'es-MX';
@@ -453,9 +468,11 @@ createApp({
       if (!lastPendingReminderAt.value) { lastPendingReminderAt.value = now; return; }
       if (now - lastPendingReminderAt.value < intervalMs) return;
       lastPendingReminderAt.value = now;
-      const hasEmergency = allCalls.value.some(c => c.isEmergency);
+      const emergencyCount = allCalls.value.filter(c => c.isEmergency).length;
+      const hasEmergency = emergencyCount > 0;
+      const pendingCount = hasEmergency ? emergencyCount : active;
       if (settings.value.voiceEnabled && ('speechSynthesis' in window)) {
-        enqueueSpeech({ pendingReminder: true });
+        enqueueSpeech({ pendingReminder: true, isEmergency: hasEmergency, count: pendingCount });
       } else {
         playAlertSound(hasEmergency);
       }

@@ -56,6 +56,11 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const cancelSpeech/);
       assert.match(script, /const playFallbackSound/);
       assert.match(script, /voiceschanged/);
+      assert.match(script, /hay un llamado de emergencia pendiente por finalizar/);
+      assert.match(script, /hay llamados de emergencia pendientes por finalizar/);
+      assert.match(script, /hay un llamado pendiente por finalizar/);
+      assert.match(script, /hay llamados pendientes por finalizar/);
+      assert.match(script, /isEmergency: hasEmergency, count: pendingCount/);
       assert.match(html, /\.call-row \.call-text \{ color: var\(--text-color/);
       assert.doesNotMatch(html, /mirror-icon/);
     }
