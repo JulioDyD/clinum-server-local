@@ -353,6 +353,7 @@ createApp({
 
     const presenceCards = computed(() => {
       const settings = presenceStatus.value.settings || {};
+      if (!settings.enabled || !settings.showOnLocation) return [];
       return (presenceStatus.value.states || [])
         .filter(s => s.role === 'bathroom' && (settings.showFreeOnLocation !== false || s.state !== 'free'))
         .sort((a, b) => String(a.areaName).localeCompare(String(b.areaName), 'es'))
