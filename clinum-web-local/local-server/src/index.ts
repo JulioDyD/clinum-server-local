@@ -141,6 +141,7 @@ function handlePresenceMonitor(deviceId: string, present: boolean, now: number):
         runtime.enteredAtMs = session.enteredAtMs;
         runtime.alertSent = false;
         hub.publishPresenceSession(session);
+        hub.publishPresenceDetection({ deviceId, areaName: sensor.areaName, role: sensor.role });
       }
     } else {
       store.touchPresenceSession(runtime.sessionId, now);

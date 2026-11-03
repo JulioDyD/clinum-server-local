@@ -230,7 +230,8 @@ export class SqliteStore {
         min_session_s         INTEGER NOT NULL DEFAULT 5,
         stale_s               INTEGER NOT NULL DEFAULT 180,
         long_stay_min         INTEGER NOT NULL DEFAULT 15,
-        alert_enabled         INTEGER NOT NULL DEFAULT 1
+        alert_enabled         INTEGER NOT NULL DEFAULT 1,
+        sound_on_detection    INTEGER NOT NULL DEFAULT 0
       );
     `);
         this.db.prepare("INSERT OR IGNORE INTO location_settings (id) VALUES (1)").run();
@@ -287,6 +288,7 @@ export class SqliteStore {
         this._ensureColumn("call_history", "patient_name", "TEXT NOT NULL DEFAULT ''");
         this._ensureColumn("call_history", "finish_origin", "TEXT NOT NULL DEFAULT ''");
         this._ensureColumn("lamp_alert_profiles", "auto_end_s", "INTEGER NOT NULL DEFAULT 0");
+        this._ensureColumn("presence_settings", "sound_on_detection", "INTEGER NOT NULL DEFAULT 0");
     }
     _ensureColumn(table, column, definition) {
         const columns = this.db.pragma(`table_info(${table})`);
@@ -861,6 +863,7 @@ export class SqliteStore {
             staleS: Number(row.stale_s ?? 180) || 180,
             longStayMin: Number(row.long_stay_min ?? 15) || 15,
             alertEnabled: Boolean(row.alert_enabled ?? 1),
+            soundOnDetection: Boolean(row.sound_on_detection ?? 0),
         };
     }
     updatePresenceSettings(values) {
@@ -869,9 +872,10 @@ export class SqliteStore {
         this.db.prepare(`
       UPDATE presence_settings SET
         enabled = ?, show_on_location = ?, show_free_on_location = ?,
-        exit_grace_s = ?, min_session_s = ?, stale_s = ?, long_stay_min = ?, alert_enabled = ?
+        exit_grace_s = ?, min_session_s = ?, stale_s = ?, long_stay_min = ?, alert_enabled = ?,
+        sound_on_detection = ?
       WHERE id = 1
-    `).run((values.enabled ?? current.enabled) ? 1 : 0, (values.showOnLocation ?? current.showOnLocation) ? 1 : 0, (values.showFreeOnLocation ?? current.showFreeOnLocation) ? 1 : 0, clamp(values.exitGraceS ?? current.exitGraceS, 0, 300, current.exitGraceS), clamp(values.minSessionS ?? current.minSessionS, 0, 300, current.minSessionS), clamp(values.staleS ?? current.staleS, 30, 3600, current.staleS), clamp(values.longStayMin ?? current.longStayMin, 1, 240, current.longStayMin), (values.alertEnabled ?? current.alertEnabled) ? 1 : 0);
+    `).run((values.enabled ?? current.enabled) ? 1 : 0, (values.showOnLocation ?? current.showOnLocation) ? 1 : 0, (values.showFreeOnLocation ?? current.showFreeOnLocation) ? 1 : 0, clamp(values.exitGraceS ?? current.exitGraceS, 0, 300, current.exitGraceS), clamp(values.minSessionS ?? current.minSessionS, 0, 300, current.minSessionS), clamp(values.staleS ?? current.staleS, 30, 3600, current.staleS), clamp(values.longStayMin ?? current.longStayMin, 1, 240, current.longStayMin), (values.alertEnabled ?? current.alertEnabled) ? 1 : 0, (values.soundOnDetection ?? current.soundOnDetection) ? 1 : 0);
         return this.getPresenceSettings();
     }
     openPresenceSession(deviceId, role, areaName, enteredAtMs, lastSeenAtMs) {

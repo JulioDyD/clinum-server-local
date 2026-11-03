@@ -75,6 +75,10 @@ export class RealtimeHub {
     this.io.emit("presence_settings", settings);
   }
 
+  public publishPresenceDetection(payload: { deviceId: string; areaName: string; role: string }): void {
+    this.io.emit("presence_detection", payload);
+  }
+
   public publishPresenceSession(session: PresenceSession): void {
     this.io.emit("presence_session", session);
   }

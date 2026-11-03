@@ -79,8 +79,8 @@
     .presence-board-title { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px; }
     .presence-board-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
     .presence-card { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 76px; padding: 8px 12px; border-radius: 8px; background: rgba(30,41,59,0.9); border: 1px solid #334155; border-left: 5px solid #64748b; overflow: hidden; }
-    .presence-card.free { border-left-color: #22c55e; }
-    .presence-card.occupied { border-left-color: #f59e0b; }
+    .presence-card.free { border-left-color: var(--header-color, #f59e0b); }
+    .presence-card.occupied { border-left-color: #22c55e; }
     .presence-card.unknown { border-left-color: #64748b; }
     .presence-card.alert { border-left-color: #ef4444; animation: presencePulse 1.6s ease-in-out infinite; }
     .presence-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -88,10 +88,14 @@
     .presence-card-icon svg { width: 100%; height: 100%; }
     .presence-card-name { font-size: 1.05rem; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .presence-card-state { font-size: 1.5rem; font-weight: 800; line-height: 1.1; color: #cbd5e1; }
-    .presence-card.free .presence-card-state { color: #86efac; }
-    .presence-card.occupied .presence-card-state { color: #fcd34d; font-family: 'Courier New', monospace; }
+    .presence-card.free .presence-card-state { color: var(--header-color, #f59e0b); }
+    .presence-card.occupied .presence-card-state { color: #86efac; font-family: 'Courier New', monospace; }
     .presence-card.unknown .presence-card-state { color: #94a3b8; }
     .presence-card.alert .presence-card-state { color: #fca5a5; }
+    .presence-card.free .presence-card-icon { color: var(--header-color, #f59e0b); }
+    .presence-card.occupied .presence-card-icon { color: #22c55e; }
+    .presence-card.unknown .presence-card-icon { color: #64748b; }
+    .presence-card.alert .presence-card-icon { color: #ef4444; }
     @keyframes presencePulse { 0%, 100% { box-shadow: 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 10px rgba(239,68,68,0.7); } }
   </style>
 </head>
@@ -207,6 +211,7 @@ createApp({
     const isSpeaking = ref(false);
     const speechQueue = ref([]);
     const presenceStatus = ref({ settings: {}, states: [] });
+    let lastPresenceSoundAt = 0;
     const MAX_SPEECH_QUEUE = 5;
     const SPEECH_WATCHDOG_MS = 12000;
     let speechAdvanceTimer = null;
@@ -681,6 +686,15 @@ createApp({
         const idx = states.findIndex(s => s.deviceId === state.deviceId);
         if (idx >= 0) states[idx] = state; else states.push(state);
         presenceStatus.value = { ...presenceStatus.value, states };
+      });
+      socket.on('presence_detection', (payload) => {
+        const presence = presenceStatus.value.settings || {};
+        if (!presence.enabled || !presence.soundOnDetection) return;
+        if (payload?.role && payload.role !== 'bathroom') return;
+        const now = Date.now();
+        if (now - lastPresenceSoundAt < 2000) return;
+        lastPresenceSoundAt = now;
+        playAlertSound(false);
       });
 
       clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);

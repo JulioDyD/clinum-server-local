@@ -133,6 +133,7 @@ function handlePresenceMonitor(deviceId, present, now) {
                 runtime.enteredAtMs = session.enteredAtMs;
                 runtime.alertSent = false;
                 hub.publishPresenceSession(session);
+                hub.publishPresenceDetection({ deviceId, areaName: sensor.areaName, role: sensor.role });
             }
         }
         else {

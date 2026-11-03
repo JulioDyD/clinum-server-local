@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { SqliteStore } from "../src/store/sqliteStore.js";
+
+test("server emits a detection event when a presence session opens", () => {
+  const source = readFileSync(resolve("src", "index.ts"), "utf8");
+  assert.match(source, /publishPresenceDetection/);
+  assert.match(source, /hub\.publishPresenceDetection\(\{ deviceId, areaName: sensor\.areaName, role: sensor\.role \}\)/);
+});
 
 test("presence settings default disabled with expected thresholds", () => {
   const store = new SqliteStore(":memory:");
@@ -14,6 +22,7 @@ test("presence settings default disabled with expected thresholds", () => {
     assert.equal(settings.staleS, 180);
     assert.equal(settings.longStayMin, 15);
     assert.equal(settings.alertEnabled, true);
+    assert.equal(settings.soundOnDetection, false);
   } finally {
     store.close();
   }
