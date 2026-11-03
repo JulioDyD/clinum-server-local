@@ -62,9 +62,10 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const cancelSpeech/);
       assert.match(script, /const playFallbackSound/);
       assert.match(script, /voiceschanged/);
-      assert.match(script, /showPresenceStrip/);
-      assert.match(script, /presenceChips/);
-      assert.match(html, /presence-strip/);
+      assert.match(script, /showPresenceBoard/);
+      assert.match(script, /presenceCards/);
+      assert.match(script, /presenceBoardHeight/);
+      assert.match(html, /presence-board/);
       assert.match(script, /hay un llamado de emergencia pendiente por finalizar/);
       assert.match(script, /hay llamados de emergencia pendientes por finalizar/);
       assert.match(script, /hay un llamado pendiente por finalizar/);
