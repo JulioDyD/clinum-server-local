@@ -211,6 +211,7 @@ createApp({
     const isSpeaking = ref(false);
     const speechQueue = ref([]);
     const presenceStatus = ref({ settings: {}, states: [] });
+    const presenceStates = new Map();
     let lastPresenceSoundAt = 0;
     const MAX_SPEECH_QUEUE = 5;
     const SPEECH_WATCHDOG_MS = 12000;
@@ -376,8 +377,21 @@ createApp({
     const loadPresence = async () => {
       try {
         const res = await fetch('/presence/status');
-        if (res.ok) presenceStatus.value = await res.json();
+        if (res.ok) {
+          presenceStatus.value = await res.json();
+          presenceStates.clear();
+          for (const state of presenceStatus.value.states || []) presenceStates.set(state.deviceId, state.state);
+        }
       } catch (e) { /* se recupera con socket */ }
+    };
+
+    const maybePlayPresenceSound = () => {
+      const presence = presenceStatus.value.settings || {};
+      if (!presence.enabled || !presence.soundOnDetection) return;
+      const now = Date.now();
+      if (now - lastPresenceSoundAt < 2000) return;
+      lastPresenceSoundAt = now;
+      playAlertSound(false);
     };
 
     const formatCallTime = (call) => {
@@ -682,19 +696,19 @@ createApp({
         presenceStatus.value = { ...presenceStatus.value, settings: next };
       });
       socket.on('presence_state', (state) => {
+        const previous = presenceStates.get(state.deviceId);
+        presenceStates.set(state.deviceId, state.state);
         const states = [...(presenceStatus.value.states || [])];
         const idx = states.findIndex(s => s.deviceId === state.deviceId);
         if (idx >= 0) states[idx] = state; else states.push(state);
         presenceStatus.value = { ...presenceStatus.value, states };
+        if (state.role === 'bathroom' && state.state === 'occupied' && previous && previous !== 'occupied') {
+          maybePlayPresenceSound();
+        }
       });
       socket.on('presence_detection', (payload) => {
-        const presence = presenceStatus.value.settings || {};
-        if (!presence.enabled || !presence.soundOnDetection) return;
         if (payload?.role && payload.role !== 'bathroom') return;
-        const now = Date.now();
-        if (now - lastPresenceSoundAt < 2000) return;
-        lastPresenceSoundAt = now;
-        playAlertSound(false);
+        maybePlayPresenceSound();
       });
 
       clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);
