@@ -10,6 +10,13 @@ test("server emits a detection event when a presence session opens", () => {
   assert.match(source, /hub\.publishPresenceDetection\(\{ deviceId, areaName: sensor\.areaName, role: sensor\.role \}\)/);
 });
 
+test("presence detection is emitted on every false->true transition", () => {
+  const source = readFileSync(resolve("src", "index.ts"), "utf8");
+  assert.match(source, /const wasPresent = runtime\.present/);
+  assert.match(source, /if \(!wasPresent\) hub\.publishPresenceDetection/);
+  assert.match(source, /runtime\.present = false/);
+});
+
 test("presence settings default disabled with expected thresholds", () => {
   const store = new SqliteStore(":memory:");
   try {

@@ -2534,6 +2534,36 @@ createApp({
       } catch (e) { console.error('testSound failed', e); }
     };
 
+    const pickBestSpanishVoice = (voices) => {
+      const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
+      const femaleHints = [
+        'monica', 'mónica', 'paulina', 'sabina', 'helena', 'laura', 'lupe', 'marisol', 'dalia',
+        'elvira', 'raquel', 'salome', 'salomé', 'carmen', 'lucia', 'lucía', 'sofia', 'sofía',
+        'isabela', 'valentina', 'camila', 'female', 'mujer', 'woman', 'google español',
+      ];
+      const maleHints = [
+        'jorge', 'diego', 'carlos', 'juan', 'pablo', 'raul', 'raúl', 'miguel', 'enrique',
+        'alvaro', 'álvaro', 'male', 'hombre',
+      ];
+      const score = (voice) => {
+        const name = `${voice.name || ''} ${voice.voiceURI || ''}`.toLowerCase();
+        const lang = (voice.lang || '').toLowerCase();
+        if (!lang.startsWith('es')) return -1;
+        let value = 100;
+        if (latinoCodes.some(code => lang.startsWith(code.toLowerCase()))) value += 10;
+        if (femaleHints.some(hint => name.includes(hint))) value += 60;
+        if (maleHints.some(hint => name.includes(hint))) value -= 80;
+        if (name.includes('natural') || name.includes('neural')) value += 40;
+        if (name.includes('premium') || name.includes('enhanced')) value += 25;
+        if (name.includes('google')) value += 30;
+        if (name.includes('microsoft')) value += 20;
+        if (voice.localService) value += 2;
+        return value;
+      };
+      const spanish = voices.filter(v => (v.lang || '').toLowerCase().startsWith('es'));
+      return [...spanish].sort((a, b) => score(b) - score(a))[0] || null;
+    };
+
     const testVoice = () => {
       if (!('speechSynthesis' in window)) return;
       const utterance = new SpeechSynthesisUtterance('Llamado desde Cama 101');
@@ -2541,10 +2571,7 @@ createApp({
       utterance.rate = Number(locationSettings.value.voiceRate) || 1;
       utterance.pitch = Number(locationSettings.value.voicePitch) || 1;
       utterance.volume = Math.max(0, Math.min(1, Number(locationSettings.value.voiceVolume ?? 0.9)));
-      const voices = window.speechSynthesis.getVoices();
-      const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
-      const voice = voices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
-        || voices.find(v => v.lang.startsWith('es'));
+      const voice = pickBestSpanishVoice(window.speechSynthesis.getVoices() || []);
       if (voice) utterance.voice = voice;
       window.speechSynthesis.cancel();
       window.speechSynthesis.resume();

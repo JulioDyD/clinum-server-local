@@ -163,6 +163,7 @@
     <audio ref="emergencySound" preload="auto"></audio>
     <audio ref="emergencySoundBackup1" preload="auto"></audio>
     <audio ref="emergencySoundBackup2" preload="auto"></audio>
+    <audio ref="presenceSound" preload="auto"></audio>
   </div>
 </div>
 
@@ -206,34 +207,67 @@ createApp({
     const emergencySound = ref(null);
     const emergencySoundBackup1 = ref(null);
     const emergencySoundBackup2 = ref(null);
+    const presenceSound = ref(null);
     const nextAudioIndex = ref(0);
 
     const isSpeaking = ref(false);
     const speechQueue = ref([]);
     const presenceStatus = ref({ settings: {}, states: [] });
     const presenceStates = new Map();
-    let lastPresenceSoundAt = 0;
-    let presencePlayer = null;
+    const lastPresenceSoundByDevice = new Map();
     const MAX_SPEECH_QUEUE = 5;
     const SPEECH_WATCHDOG_MS = 12000;
+    const VOICE_WAIT_MS = 1200;
     let speechAdvanceTimer = null;
     let speechWatchdogTimer = null;
+    let voiceRetryTimer = null;
+    let voicesWaitStartedAt = 0;
     let cachedVoices = [];
 
+    const LATIN_VOICE_CODES = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
+    const FEMALE_VOICE_HINTS = [
+      'monica', 'mónica', 'paulina', 'sabina', 'helena', 'laura', 'lupe', 'penelope', 'penélope',
+      'marisol', 'esperanza', 'dalia', 'elvira', 'raquel', 'salome', 'salomé', 'carmen', 'lucia',
+      'lucía', 'sofia', 'sofía', 'isabela', 'valentina', 'camila', 'female', 'mujer', 'woman',
+      'google español', 'google us spanish',
+    ];
+    const MALE_VOICE_HINTS = [
+      'jorge', 'diego', 'carlos', 'juan', 'pablo', 'raul', 'raúl', 'miguel', 'enrique',
+      'alvaro', 'álvaro', 'male', 'hombre',
+    ];
+    const voiceScore = (voice) => {
+      const name = `${voice.name || ''} ${voice.voiceURI || ''}`.toLowerCase();
+      const lang = (voice.lang || '').toLowerCase();
+      if (!lang.startsWith('es')) return -1;
+      let score = 100;
+      if (LATIN_VOICE_CODES.some(code => lang.startsWith(code.toLowerCase()))) score += 10;
+      if (FEMALE_VOICE_HINTS.some(hint => name.includes(hint))) score += 60;
+      if (MALE_VOICE_HINTS.some(hint => name.includes(hint))) score -= 80;
+      if (name.includes('natural') || name.includes('neural')) score += 40;
+      if (name.includes('premium') || name.includes('enhanced')) score += 25;
+      if (name.includes('google')) score += 30;
+      if (name.includes('microsoft')) score += 20;
+      if (voice.localService) score += 2;
+      return score;
+    };
     const loadVoices = () => {
       if (!('speechSynthesis' in window)) return;
       cachedVoices = window.speechSynthesis.getVoices() || [];
     };
-    if ('speechSynthesis' in window) {
-      loadVoices();
-      window.speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
-    }
     const pickSpanishVoice = () => {
       if (!cachedVoices.length) loadVoices();
-      const latinoCodes = ['es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE', 'es-EC'];
-      return cachedVoices.find(v => latinoCodes.some(code => v.lang.startsWith(code)))
-        || cachedVoices.find(v => v.lang.startsWith('es')) || null;
+      const spanish = cachedVoices.filter(v => (v.lang || '').toLowerCase().startsWith('es'));
+      if (!spanish.length) return null;
+      return [...spanish].sort((a, b) => voiceScore(b) - voiceScore(a))[0];
     };
+    const onVoicesChanged = () => {
+      loadVoices();
+      processSpeechQueue();
+    };
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      window.speechSynthesis.addEventListener?.('voiceschanged', onVoicesChanged);
+    }
 
     // Recuerda cons por deviceId para detectar insistencias entre snapshots
     const knownCons = new Map();
@@ -382,16 +416,18 @@ createApp({
           presenceStatus.value = await res.json();
           presenceStates.clear();
           for (const state of presenceStatus.value.states || []) presenceStates.set(state.deviceId, state.state);
+          applyPresenceAudio();
         }
       } catch (e) { /* se recupera con socket */ }
     };
 
-    const maybePlayPresenceSound = () => {
+    const maybePlayPresenceSound = (deviceId) => {
       const presence = presenceStatus.value.settings || {};
       if (!presence.enabled || !presence.soundOnDetection) return;
+      const key = deviceId || 'default';
       const now = Date.now();
-      if (now - lastPresenceSoundAt < 2000) return;
-      lastPresenceSoundAt = now;
+      if (now - (lastPresenceSoundByDevice.get(key) || 0) < 2000) return;
+      lastPresenceSoundByDevice.set(key, now);
       playPresenceSound();
     };
 
@@ -417,6 +453,13 @@ createApp({
     const setAudioSrc = (el, src) => {
       if (el.getAttribute('src') !== src) el.src = src;
     };
+    const applyPresenceAudio = () => {
+      const el = presenceSound.value;
+      if (!el) return;
+      const file = (presenceStatus.value.settings || {}).detectionSound || 'alert.mp3';
+      setAudioSrc(el, `/sounds/${file}`);
+      el.volume = clampVolume(Number(settings.value.soundVolume ?? 80) / 100, 0.8);
+    };
     const applyAudioSources = () => {
       const normalSrc = `/sounds/${settings.value.alertSound || 'clinum_normal.mp3'}`;
       const emergencySrc = `/sounds/${settings.value.emergencySound || 'clinum_emergency.mp3'}`;
@@ -438,6 +481,7 @@ createApp({
         appliedAudio.emergency = emergencySrc;
       }
       appliedAudio.volume = vol;
+      applyPresenceAudio();
     };
 
     const getNextAudioElement = (isEmergency) => {
@@ -479,14 +523,12 @@ createApp({
     };
 
     const playPresenceSound = () => {
-      if (!settings.value.soundEnabled) return;
-      const file = (presenceStatus.value.settings || {}).detectionSound || 'alert.mp3';
-      const vol = clampVolume(Number(settings.value.soundVolume ?? 80) / 100, 0.8);
-      if (!presencePlayer) presencePlayer = new Audio();
-      setAudioSrc(presencePlayer, `/sounds/${file}`);
-      presencePlayer.volume = vol;
-      try { presencePlayer.currentTime = 0; } catch {}
-      presencePlayer.play().catch(() => {});
+      const el = presenceSound.value;
+      if (!el) return;
+      applyPresenceAudio();
+      el.muted = false;
+      try { el.currentTime = 0; } catch {}
+      el.play().catch((error) => console.warn('No se pudo reproducir la alerta de presencia:', error));
     };
 
     // ── Voz ──
@@ -503,6 +545,7 @@ createApp({
     const cancelSpeech = () => {
       speechQueue.value = [];
       clearSpeechTimers();
+      if (voiceRetryTimer) { clearTimeout(voiceRetryTimer); voiceRetryTimer = null; }
       isSpeaking.value = false;
       try { window.speechSynthesis.cancel(); } catch {}
     };
@@ -532,9 +575,25 @@ createApp({
       }
       processSpeechQueue();
     };
+    const scheduleVoiceRetry = () => {
+      if (voiceRetryTimer) return;
+      voiceRetryTimer = setTimeout(() => {
+        voiceRetryTimer = null;
+        processSpeechQueue();
+      }, 100);
+    };
     const processSpeechQueue = () => {
       if (isSpeaking.value || speechQueue.value.length === 0) return;
       if (!('speechSynthesis' in window)) { speechQueue.value = []; return; }
+      const voice = pickSpanishVoice();
+      if (!voice) {
+        const now = Date.now();
+        if (!voicesWaitStartedAt) voicesWaitStartedAt = now;
+        if (now - voicesWaitStartedAt < VOICE_WAIT_MS) {
+          scheduleVoiceRetry();
+          return;
+        }
+      }
       const item = speechQueue.value.shift();
       const message = item.pendingReminder
         ? (item.isEmergency
@@ -550,7 +609,6 @@ createApp({
       utterance.rate = Number(settings.value.voiceRate) || 1.0;
       utterance.pitch = Number(settings.value.voicePitch) || 1.0;
       utterance.volume = clampVolume(settings.value.voiceVolume ?? 0.9, 0.9);
-      const voice = pickSpanishVoice();
       if (voice) utterance.voice = voice;
 
       let settled = false;
@@ -688,7 +746,7 @@ createApp({
         applyAudioSources();
         applySnapshot(callsRes.items || []);
       } catch (e) { /* se recupera con los eventos del socket */ }
-      loadPresence();
+      await loadPresence();
 
       socket = io();
       socket.on('active_calls', (list) => applySnapshot(list));
@@ -706,6 +764,7 @@ createApp({
       });
       socket.on('presence_settings', (next) => {
         presenceStatus.value = { ...presenceStatus.value, settings: next };
+        applyPresenceAudio();
       });
       socket.on('presence_state', (state) => {
         const previous = presenceStates.get(state.deviceId);
@@ -715,12 +774,12 @@ createApp({
         if (idx >= 0) states[idx] = state; else states.push(state);
         presenceStatus.value = { ...presenceStatus.value, states };
         if (state.role === 'bathroom' && state.state === 'occupied' && previous && previous !== 'occupied') {
-          maybePlayPresenceSound();
+          maybePlayPresenceSound(state.deviceId);
         }
       });
       socket.on('presence_detection', (payload) => {
         if (payload?.role && payload.role !== 'bathroom') return;
-        maybePlayPresenceSound();
+        maybePlayPresenceSound(payload?.deviceId);
       });
 
       clockTimer = setInterval(() => { currentTime.value = new Date(); }, 1000);
@@ -741,7 +800,7 @@ createApp({
     onUnmounted(() => {
       window.removeEventListener('resize', updateViewport);
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.removeEventListener?.('voiceschanged', loadVoices);
+        window.speechSynthesis.removeEventListener?.('voiceschanged', onVoicesChanged);
       }
       cancelSpeech();
       if (socket) socket.disconnect();
@@ -756,6 +815,7 @@ createApp({
       presenceStatus, showPresenceBoard, presenceCards, presenceBoardHeight,
       alertSound, alertSoundBackup1, alertSoundBackup2,
       emergencySound, emergencySoundBackup1, emergencySoundBackup2,
+      presenceSound,
     };
   }
 }).mount('#app');

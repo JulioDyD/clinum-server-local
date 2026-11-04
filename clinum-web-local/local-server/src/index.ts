@@ -107,13 +107,18 @@ function publishPresenceState(deviceId: string): void {
 
 function closePresenceRuntimeSession(deviceId: string, exitedAtMs: number, reason: string): void {
   const runtime = presenceRuntime.get(deviceId);
-  if (!runtime?.sessionId) return;
+  if (!runtime) return;
+  if (!runtime.sessionId) {
+    runtime.present = false;
+    return;
+  }
   const settings = store.getPresenceSettings();
   const closed = store.closePresenceSession(runtime.sessionId, exitedAtMs, reason, settings.minSessionS * 1000);
   runtime.sessionId = undefined;
   runtime.enteredAtMs = undefined;
   runtime.exitDeadlineMs = undefined;
   runtime.alertSent = false;
+  runtime.present = false;
   if (closed) hub.publishPresenceSession(closed);
   publishPresenceState(deviceId);
 }
@@ -124,6 +129,7 @@ function handlePresenceMonitor(deviceId: string, present: boolean, now: number):
   const sensor = store.getPresenceSensor(deviceId);
   if (!sensor || !sensor.enabled) return;
   const runtime = presenceRuntime.get(deviceId) ?? { present: false, lastSeenAtMs: 0, alertSent: false };
+  const wasPresent = runtime.present;
   runtime.lastSeenAtMs = now;
   if (present) {
     runtime.present = true;
@@ -141,11 +147,11 @@ function handlePresenceMonitor(deviceId: string, present: boolean, now: number):
         runtime.enteredAtMs = session.enteredAtMs;
         runtime.alertSent = false;
         hub.publishPresenceSession(session);
-        hub.publishPresenceDetection({ deviceId, areaName: sensor.areaName, role: sensor.role });
       }
     } else {
       store.touchPresenceSession(runtime.sessionId, now);
     }
+    if (!wasPresent) hub.publishPresenceDetection({ deviceId, areaName: sensor.areaName, role: sensor.role });
   } else {
     runtime.present = false;
     if (runtime.sessionId && !runtime.exitDeadlineMs) {
@@ -167,7 +173,10 @@ function sweepPresenceMonitor(now = Date.now()): void {
       continue;
     }
     if (!runtime.sessionId) {
-      if (runtime.lastSeenAtMs > 0 && now - runtime.lastSeenAtMs >= settings.staleS * 1000) publishPresenceState(deviceId);
+      if (runtime.lastSeenAtMs > 0 && now - runtime.lastSeenAtMs >= settings.staleS * 1000) {
+        runtime.present = false;
+        publishPresenceState(deviceId);
+      }
       continue;
     }
     if (now - runtime.lastSeenAtMs >= settings.staleS * 1000) {

@@ -79,6 +79,11 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /soundOnDetection/);
       assert.match(script, /maybePlayPresenceSound/);
       assert.match(script, /playPresenceSound/);
+      assert.match(script, /applyPresenceAudio/);
+      assert.match(script, /lastPresenceSoundByDevice/);
+      assert.match(script, /VOICE_WAIT_MS/);
+      assert.match(script, /FEMALE_VOICE_HINTS/);
+      assert.match(html, /ref="presenceSound"/);
       assert.match(script, /detectionSound/);
       assert.match(script, /previous !== 'occupied'/);
       assert.match(html, /presence-board/);
