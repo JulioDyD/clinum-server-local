@@ -5,6 +5,8 @@
 # (config+DB only, no node_modules).
 # Usage:
 #   sudo bash site-update.sh [--repo URL] [--ref main|v1.2.3] [--check-only] [--force] [--yes]
+#       [--location-id ID] [--project clinum-2]
+#       [--service-account-file /root/clinum-sa.json | --service-account-stdin]
 #   sudo bash site-update.sh --local [--yes]
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,20 +15,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; WORKDIR="/tmp"
 ASSUME_YES=0; LOCAL_MODE=0; CHECK_ONLY=0; FORCE=0
+LOCATION_ID=""; PROJECT_ID="clinum-2"; SERVICE_ACCOUNT_FILE=""; SERVICE_ACCOUNT_STDIN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="${2:?}"; shift 2 ;;
     --ref) REF="${2:?}"; shift 2 ;;
     --workdir) WORKDIR="${2:?}"; shift 2 ;;
+    --location-id) LOCATION_ID="${2:?}"; shift 2 ;;
+    --project) PROJECT_ID="${2:?}"; shift 2 ;;
+    --service-account-file) SERVICE_ACCOUNT_FILE="${2:?}"; shift 2 ;;
+    --service-account-stdin) SERVICE_ACCOUNT_STDIN=1; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
     --force) FORCE=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --local) LOCAL_MODE=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) die "Unknown option: $1 (use --help)" ;;
   esac
 done
+
+SA_TMP=""
+cleanup() { if [ -n "$SA_TMP" ]; then rm -f "$SA_TMP"; fi; }
+trap cleanup EXIT
 
 require_root
 check_systemd
@@ -59,6 +70,28 @@ fi
 if [ "$CURRENT" = "$TARGET" ] && [ "$FORCE" -ne 1 ]; then
   log "Already on v$TARGET. Nothing to do (use --force to reinstall)."
   exit 0
+fi
+
+if [ "$SERVICE_ACCOUNT_STDIN" -eq 1 ] && [ "$ASSUME_YES" -ne 1 ]; then
+  die "--service-account-stdin requiere --yes"
+fi
+
+if [ "$SERVICE_ACCOUNT_STDIN" -eq 1 ]; then
+  SA_TMP="$(read_service_account_stdin)"
+  SERVICE_ACCOUNT_FILE="$SA_TMP"
+fi
+
+if [ "$LOCAL_MODE" -eq 1 ] && { [ -n "$SERVICE_ACCOUNT_FILE" ] || [ "$SERVICE_ACCOUNT_STDIN" -eq 1 ]; }; then
+  ensure_build_deps
+fi
+
+if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
+  [ -f "$SERVICE_ACCOUNT_FILE" ] || die "No existe la credencial: $SERVICE_ACCOUNT_FILE"
+  validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
+  if [ -z "$LOCATION_ID" ]; then
+    EXISTING_LOCATION="$(grep -E '^LOCATION_ID=' "$ENVFILE" 2>/dev/null | cut -d= -f2 | tail -n1 || true)"
+    [ -n "$EXISTING_LOCATION" ] || die "Con credencial, indica --location-id o configura LOCATION_ID en $ENVFILE"
+  fi
 fi
 
 HTTP_PORT="$DEFAULT_HTTP_PORT"
@@ -98,10 +131,26 @@ chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
 if getent passwd soporte >/dev/null; then
   adduser soporte clinum >/dev/null 2>&1 || true
 fi
-if [ -f "/etc/clinum-web-local/service-account.json" ]; then
-  chown root:clinum "/etc/clinum-web-local/service-account.json" || true
-  chmod 0640 "/etc/clinum-web-local/service-account.json" || true
+if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
+  install_service_account_atomic "$SERVICE_ACCOUNT_FILE"
+  enable_systemd_credential
+  set_env_key "LOCAL_ONLY" "0" "$ENVFILE"
+  if [ -n "$LOCATION_ID" ]; then set_env_key "LOCATION_ID" "$LOCATION_ID" "$ENVFILE"; fi
+  if [ -n "$PROJECT_ID" ]; then set_env_key "FIREBASE_PROJECT_ID" "$PROJECT_ID" "$ENVFILE"; fi
+  log "Credencial Firebase actualizada (0600 root:root + systemd)"
+else
+  if [ -f "$SERVICE_ACCOUNT_PATH" ]; then
+    chown root:root "$SERVICE_ACCOUNT_PATH" 2>/dev/null || true
+    chmod 0600 "$SERVICE_ACCOUNT_PATH" 2>/dev/null || true
+    enable_systemd_credential
+    log "Credencial existente preservada"
+  else
+    disable_systemd_credential || true
+    set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
+    warn "Sin credencial: la sede queda en modo local-only."
+  fi
 fi
+chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
 
 # HTTPS with site-internal CA (method B). Keeps existing CA (no client reinstall),
 # issues the server cert on first TLS upgrade.
@@ -112,8 +161,35 @@ systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager || true
 health_check "$HTTP_PORT" || {
   warn "Installed but /health does not answer."
-  warn "Manual rollback: restore $BACKUP/.env -> $ENVFILE and $BACKUP/var-lib -> $VARDIR, then systemctl restart $SERVICE_NAME"
+  warn "Manual rollback: restore $BACKUP/.env -> $ENVFILE, $BACKUP/service-account.json -> $SERVICE_ACCOUNT_PATH and $BACKUP/var-lib -> $VARDIR, then systemctl restart $SERVICE_NAME"
   exit 1
 }
+
+if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
+  if verify_integration "$HTTP_PORT" 1; then
+    log "Integracion verificada: sync activo."
+  else
+    warn "Verificacion de sync fallida; restaurando credencial y configuracion anteriores..."
+    [ -f "$BACKUP/.env" ] && install -o root -g clinum -m 0660 "$BACKUP/.env" "$ENVFILE"
+    if [ -f "$SERVICE_ACCOUNT_PATH.bak" ]; then
+      mv -f "$SERVICE_ACCOUNT_PATH.bak" "$SERVICE_ACCOUNT_PATH"
+      chown root:root "$SERVICE_ACCOUNT_PATH" 2>/dev/null || true
+      chmod 0600 "$SERVICE_ACCOUNT_PATH" 2>/dev/null || true
+      enable_systemd_credential || true
+    elif [ -f "$BACKUP/service-account.json" ]; then
+      install -o root -g root -m 0600 "$BACKUP/service-account.json" "$SERVICE_ACCOUNT_PATH"
+      enable_systemd_credential || true
+    else
+      rm -f "$SERVICE_ACCOUNT_PATH"
+      disable_systemd_credential || true
+      set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
+    fi
+    systemctl restart "$SERVICE_NAME" || true
+    warn "Revisa: journalctl -u $SERVICE_NAME -f"
+    exit 1
+  fi
+else
+  verify_integration "$HTTP_PORT" 0 || true
+fi
 print_site_info "$HTTP_PORT"
 log "Update v$CURRENT -> v$TARGET OK (backup: $BACKUP)"

@@ -9,6 +9,7 @@ export class FirebaseBridge {
     enabled;
     locationId;
     lastError = null;
+    static lastInitError = "";
     constructor(projectId, enabled, locationId = "", credentialPath = "") {
         this.projectId = projectId;
         this.credentialPath = credentialPath;
@@ -25,7 +26,10 @@ export class FirebaseBridge {
             return true;
         try {
             if (credentialPath && existsSync(credentialPath)) {
-                const raw = JSON.parse(readFileSync(credentialPath, "utf8"));
+                const raw = JSON.parse(readFileSync(credentialPath, "utf8").replace(/^\uFEFF/, ""));
+                if (raw?.project_id && projectId && raw.project_id !== projectId) {
+                    throw new Error(`La credencial pertenece al proyecto ${raw.project_id}, no a ${projectId}`);
+                }
                 admin.initializeApp({ credential: admin.credential.cert(raw), projectId });
             }
             else {
@@ -33,7 +37,8 @@ export class FirebaseBridge {
             }
         }
         catch (err) {
-            console.error("[firebase] initAdmin failed:", err instanceof Error ? err.message : err);
+            FirebaseBridge.lastInitError = err instanceof Error ? err.message : String(err);
+            console.error("[firebase] initAdmin failed:", FirebaseBridge.lastInitError);
             return false;
         }
         return true;
@@ -43,7 +48,8 @@ export class FirebaseBridge {
         if (enabled && !this.enabled) {
             const ok = FirebaseBridge.initAdmin(this.projectId, true, this.credentialPath);
             if (!ok) {
-                this.lastError = { message: "No se pudo inicializar el SDK de Firebase (ver logs del servidor)", atMs: Date.now() };
+                const detail = FirebaseBridge.lastInitError || "ver logs del servidor";
+                this.lastError = { message: `No se pudo inicializar el SDK de Firebase: ${detail}`, atMs: Date.now() };
                 return;
             }
         }

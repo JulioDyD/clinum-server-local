@@ -42,7 +42,9 @@ export function getIntegrationSettings() {
     catch {
         envFileWritable = false;
     }
-    const credPath = values.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS || "./service-account.json";
+    // En produccion run.sh inyecta la ruta de systemd ($CREDENTIALS_DIRECTORY);
+    // esa ruta debe tener prioridad sobre el valor del .env.
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || values.GOOGLE_APPLICATION_CREDENTIALS || "./service-account.json";
     const resolvedCredPath = path.isAbsolute(credPath) ? credPath : path.join(path.dirname(envFilePath), credPath);
     return {
         locationId: values.LOCATION_ID ?? process.env.LOCATION_ID ?? "",

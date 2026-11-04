@@ -56,9 +56,10 @@ sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --
 sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --check-only
 ```
 
-Lo que preserva el update: `/etc/clinum-web-local/.env` y
-`/var/lib/clinum-web-local/clinum.db`. Antes de instalar hace backup ligero en
-`/var/backups/clinum-web-local/backup-<fecha>/` (solo config+DB, sin node_modules).
+Lo que preserva el update: `/etc/clinum-web-local/.env`,
+`/var/lib/clinum-web-local/clinum.db` y la credencial Firebase. Antes de instalar
+hace backup ligero en `/var/backups/clinum-web-local/backup-<fecha>/`
+(config + DB + TLS + credencial, sin node_modules).
 
 ## Comandos utiles
 
@@ -121,6 +122,75 @@ Puerto serial: por defecto `/dev/ttyACM0`. Para cambiarlo:
 ```bash
 SERIAL_PORT=/dev/ttyUSB1
 ```
+
+## Credencial Firebase (integracion con clinum-2.web.app)
+
+La credencial **no** se guarda en git ni en el `.deb`. Se entrega una vez por sede.
+
+### Sede nueva con sync
+```bash
+sudo bash clinum-web-local/local-server/packaging/site-install.sh \
+  --ref vX.Y.Z \
+  --location-id iXStZUMPAzQHyQ8RzsBf \
+  --project clinum-2 \
+  --service-account-file /root/clinum-sa.json \
+  --serial /dev/ttyACM0 --http-port 8081 --yes
+```
+- `/root/clinum-sa.json` es la clave de servicio del proyecto `clinum-2`
+  (Firebase Console -> Configuracion del proyecto -> Cuentas de servicio).
+- Se instala en `/etc/clinum-web-local/service-account.json` con `0600 root:root`.
+- systemd la inyecta en `/run/credentials/clinum-web-local.service/firebase`.
+- El `.env` queda con `LOCAL_ONLY=0`, `LOCATION_ID` y `FIREBASE_PROJECT_ID`.
+- Al final se verifica `/integration-settings`.
+
+### Actualizar una sede
+```bash
+# Conservando la credencial existente
+sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
+
+# Rotando la credencial
+sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z \
+  --service-account-file /root/clinum-sa-nueva.json --yes
+```
+- Sin `--service-account-file`: se conserva la credencial actual.
+- Con archivo nuevo: se valida, se reemplaza atomicamente y se guarda `.bak`.
+- Si la verificacion falla, se restaura la credencial y el `.env` anteriores.
+
+### Entrega por stdin (sin archivo temporal visible)
+```bash
+sudo bash clinum-web-local/local-server/packaging/site-install.sh --ref vX.Y.Z \
+  --location-id iXStZUMPAzQHyQ8RzsBf --project clinum-2 \
+  --service-account-stdin --yes < /root/clinum-sa.json
+```
+
+### Proteccion
+- JSON `0600 root:root`.
+- `systemd LoadCredential` lo entrega al servicio desde un tmpfs privado.
+- El grupo `clinum`/`soporte` no puede leer el JSON.
+- El panel solo muestra si existe; no permite subirlo.
+- Nunca subir el JSON a git, correo o USB sin cifrar.
+
+### Rotacion manual
+1. Generar nueva clave en Firebase Console.
+2. `site-update.sh --service-account-file /root/nueva.json --yes`.
+3. Verificar `/integration-settings` y `journalctl`.
+4. Revocar la clave anterior.
+
+### Backup
+- El update guarda `.env`, DB, TLS y `service-account.json` en
+  `/var/backups/clinum-web-local/backup-<fecha>/` con `0600`.
+- Mantener una copia segura fuera del servidor.
+
+### Verificacion
+```bash
+curl -s http://localhost:8081/integration-settings
+journalctl -u clinum-web-local -f
+```
+Debe mostrar `hasServiceAccount: true`, `localOnly: false` y `lastError: null`.
+
+### Si no hay credencial
+La sede queda en `LOCAL_ONLY=1` y funciona sin sync. Se puede provisionar
+despues con `site-update.sh --service-account-file ...`.
 
 ## Compatibilidad
 

@@ -46,10 +46,21 @@ else
   chmod 0660 "$ETCDIR/.env" || true
 fi
 
-# Credencial de servicio (si ya existe en esta sede): mismo grupo, solo lectura.
+# Credencial de servicio (si ya existe en esta sede): solo root, inyectada por systemd.
+DROPIN_DIR="/etc/systemd/system/clinum-web-local.service.d"
+DROPIN_FILE="$DROPIN_DIR/10-credential.conf"
 if [ -f "$ETCDIR/service-account.json" ]; then
-  chown root:"$APP_GROUP" "$ETCDIR/service-account.json" || true
-  chmod 0640 "$ETCDIR/service-account.json" || true
+  chown root:root "$ETCDIR/service-account.json" || true
+  chmod 0600 "$ETCDIR/service-account.json" || true
+  mkdir -p "$DROPIN_DIR"
+  cat > "$DROPIN_FILE" <<'EOF'
+[Service]
+LoadCredential=firebase:/etc/clinum-web-local/service-account.json
+EOF
+  chmod 0644 "$DROPIN_FILE"
+else
+  rm -f "$DROPIN_FILE"
+  rmdir "$DROPIN_DIR" 2>/dev/null || true
 fi
 
 # Sedes instaladas antes de esta version no tienen GOOGLE_APPLICATION_CREDENTIALS

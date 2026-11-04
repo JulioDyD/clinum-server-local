@@ -94,6 +94,130 @@ fetch_app_source() {
   warn "Full clone used: firmware files were downloaded (git server lacks partial clone)."
 }
 
+# ── Credencial Firebase (integracion con el servidor web) ────────────────────
+SERVICE_ACCOUNT_PATH="/etc/clinum-web-local/service-account.json"
+SYSTEMD_DROPIN_DIR="/etc/systemd/system/clinum-web-local.service.d"
+SYSTEMD_DROPIN_FILE="$SYSTEMD_DROPIN_DIR/10-credential.conf"
+
+# Valida el JSON sin imprimir su contenido.
+validate_service_account() {
+  local file="$1" expected_project="${2:-}"
+  [ -s "$file" ] || die "Credencial Firebase vacia o inexistente: $file"
+  python3 - "$file" "$expected_project" <<'PY'
+import json, sys
+path, expected = sys.argv[1], sys.argv[2]
+try:
+    with open(path, encoding="utf-8-sig") as fh:
+        data = json.load(fh)
+except Exception as exc:
+    print(f"JSON invalido: {exc}", file=sys.stderr)
+    sys.exit(1)
+if data.get("type") != "service_account":
+    print("La credencial no es un service_account de Firebase", file=sys.stderr)
+    sys.exit(1)
+project = str(data.get("project_id") or "")
+if expected and project != expected:
+    print(f"project_id no coincide: {project} != {expected}", file=sys.stderr)
+    sys.exit(1)
+for key in ("client_email", "private_key", "token_uri"):
+    if not data.get(key):
+        print(f"Falta el campo {key}", file=sys.stderr)
+        sys.exit(1)
+if "BEGIN PRIVATE KEY" not in str(data.get("private_key")):
+    print("private_key no parece valida", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+# Instala la credencial de forma atomica: temporal 0600 -> destino 0600 root:root.
+install_service_account_atomic() {
+  local src="$1" tmp
+  tmp="$(mktemp)"
+  cat "$src" > "$tmp"
+  chmod 0600 "$tmp"
+  mkdir -p "$(dirname "$SERVICE_ACCOUNT_PATH")"
+  if [ -f "$SERVICE_ACCOUNT_PATH" ]; then
+    cp -a "$SERVICE_ACCOUNT_PATH" "$SERVICE_ACCOUNT_PATH.bak"
+    chown root:root "$SERVICE_ACCOUNT_PATH.bak" 2>/dev/null || true
+    chmod 0600 "$SERVICE_ACCOUNT_PATH.bak" 2>/dev/null || true
+  fi
+  install -o root -g root -m 0600 "$tmp" "$SERVICE_ACCOUNT_PATH.new"
+  mv -f "$SERVICE_ACCOUNT_PATH.new" "$SERVICE_ACCOUNT_PATH"
+  rm -f "$tmp"
+}
+
+# Lee la credencial por stdin y devuelve la ruta del temporal (0600).
+read_service_account_stdin() {
+  local tmp
+  tmp="$(mktemp)"
+  cat > "$tmp"
+  chmod 0600 "$tmp"
+  printf '%s\n' "$tmp"
+}
+
+# Edita una clave del .env preservando el resto y los permisos del archivo.
+set_env_key() {
+  local key="$1" value="$2" file="$3" tmp
+  tmp="$(mktemp)"
+  if [ -f "$file" ]; then
+    awk -v k="$key" -v v="$value" '
+      index($0, k "=") == 1 { print k "=" v; next }
+      { print }
+    ' "$file" > "$tmp"
+  else
+    : > "$tmp"
+  fi
+  if ! grep -qE "^${key}=" "$tmp"; then
+    printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  fi
+  install -o root -g clinum -m 0660 "$tmp" "$file"
+  rm -f "$tmp"
+}
+
+enable_systemd_credential() {
+  mkdir -p "$SYSTEMD_DROPIN_DIR"
+  cat > "$SYSTEMD_DROPIN_FILE" <<'EOF'
+[Service]
+LoadCredential=firebase:/etc/clinum-web-local/service-account.json
+EOF
+  chmod 0644 "$SYSTEMD_DROPIN_FILE"
+  systemctl daemon-reload
+}
+
+disable_systemd_credential() {
+  rm -f "$SYSTEMD_DROPIN_FILE"
+  rmdir "$SYSTEMD_DROPIN_DIR" 2>/dev/null || true
+  systemctl daemon-reload
+}
+
+# Comprueba el estado de integracion contra la API local.
+verify_integration() {
+  local port="${1:-8081}" expect_sync="${2:-0}" scheme insecure="" json
+  scheme="$(site_scheme)"
+  [ "$scheme" = "https" ] && insecure="-k"
+  json="$(curl -fsS $insecure "${scheme}://127.0.0.1:${port}/integration-settings" 2>/dev/null)" || {
+    warn "No se pudo consultar /integration-settings"
+    return 1
+  }
+  python3 - "$json" "$expect_sync" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+expect = sys.argv[2] == "1"
+if expect:
+    if not data.get("hasServiceAccount"):
+        print("Credencial no encontrada por el servidor", file=sys.stderr); sys.exit(1)
+    if data.get("localOnly") is not False:
+        print("El sync no quedo activo (localOnly=true)", file=sys.stderr); sys.exit(1)
+    err = data.get("lastError")
+    if err:
+        msg = err.get("message", err) if isinstance(err, dict) else err
+        print(f"Error de sync: {msg}", file=sys.stderr); sys.exit(1)
+else:
+    if not data.get("hasServiceAccount") and data.get("localOnly") is not True:
+        print("Estado de integracion inesperado", file=sys.stderr); sys.exit(1)
+PY
+}
+
 detect_serial() {
   local prefer="${1:-}"
   # Explicit path always wins. Empty or "auto" => fixed default (gateway uses ttyACM0).
@@ -166,14 +290,21 @@ pkg_version() {
 }
 
 backup_site() {
-  # Light backup: only config + DB + version (NO node_modules).
+  # Light backup: config + DB + credential + version (NO node_modules).
   local ts dest
   ts="$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$BACKUP_DIR"
+  chmod 0700 "$BACKUP_DIR" 2>/dev/null || true
   dest="$BACKUP_DIR/backup-$ts"
   mkdir -p "$dest"
-  [ -f "$ENVFILE" ] && cp -a "$ENVFILE" "$dest/.env"
+  chmod 0700 "$dest"
+  [ -f "$ENVFILE" ] && install -o root -g root -m 0600 "$ENVFILE" "$dest/.env"
   # TLS private keys/certs live in /etc (never in the .deb): back them up too.
   if [ -d "$ETCDIR/tls" ]; then cp -a "$ETCDIR/tls" "$dest/tls" 2>/dev/null || true; fi
+  # Credencial de Firebase: solo root puede leerla.
+  if [ -f "$SERVICE_ACCOUNT_PATH" ]; then
+    install -o root -g root -m 0600 "$SERVICE_ACCOUNT_PATH" "$dest/service-account.json"
+  fi
   if [ -d "$VARDIR" ]; then cp -a "$VARDIR" "$dest/var-lib" 2>/dev/null || true; fi
   installed_version > "$dest/VERSION" 2>/dev/null || echo "none" > "$dest/VERSION"
   # Rotation: keep last 10

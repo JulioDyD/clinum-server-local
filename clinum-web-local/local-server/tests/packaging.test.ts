@@ -25,3 +25,31 @@ test("deb packaging copies only app artifacts", () => {
   assert.match(text, /cp -r "\$APP_DIR\/public"/);
   assert.doesNotMatch(text, /alert-lamp|call-lcd|gatenway|gateway-esp32|lora_transport/);
 });
+
+test("Firebase credentials are provisioned atomically and injected by systemd", () => {
+  const lib = readPackaging("lib.sh");
+  assert.match(lib, /validate_service_account\(\)/);
+  assert.match(lib, /install_service_account_atomic\(\)/);
+  assert.match(lib, /LoadCredential=firebase:/);
+  assert.match(lib, /chmod 0600/);
+  assert.match(lib, /service-account\.json/);
+
+  for (const script of ["site-install.sh", "site-update.sh"]) {
+    const text = readPackaging(script);
+    assert.match(text, /--service-account-file/);
+    assert.match(text, /--service-account-stdin/);
+    assert.match(text, /validate_service_account/);
+    assert.match(text, /enable_systemd_credential/);
+  }
+
+  const run = readFileSync(resolve("packaging/deb-root/opt/clinum-web-local/run.sh"), "utf8");
+  assert.match(run, /CREDENTIALS_DIRECTORY/);
+  assert.match(run, /GOOGLE_APPLICATION_CREDENTIALS/);
+
+  const unit = readFileSync(resolve("packaging/deb-root/usr/lib/systemd/system/clinum-web-local.service"), "utf8");
+  assert.match(unit, /ExecStart=\/opt\/clinum-web-local\/run\.sh/);
+
+  const postinst = readFileSync(resolve("packaging/deb-root/DEBIAN/postinst"), "utf8");
+  assert.match(postinst, /LoadCredential=firebase:/);
+  assert.match(postinst, /chmod 0600/);
+});

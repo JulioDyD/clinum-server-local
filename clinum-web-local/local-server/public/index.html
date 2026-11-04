@@ -1323,6 +1323,8 @@
         <div class="cfg-info" :class="{ 'cfg-info-warn': !integrationSettings.hasServiceAccount }">
           <div>📄 Credencial Firebase: <strong>{{ integrationSettings.hasServiceAccount ? 'Encontrada' : 'No encontrada' }}</strong></div>
           <div>📁 Archivo de configuración: <span class="mono">{{ integrationSettings.envFilePath }}</span></div>
+          <div>🔑 Ruta de la credencial: <span class="mono">{{ integrationSettings.serviceAccountPath || '—' }}</span></div>
+          <div v-if="integrationSettings.hasServiceAccount">🔒 La credencial se administra en el sistema (0600 root:root + systemd) y no se muestra aquí.</div>
           <div v-if="!integrationSettings.envFileWritable">⚠️ Este archivo no es escribible por el servidor; guarda manualmente o ajusta permisos.</div>
           <div v-if="!integrationSettings.hasServiceAccount">⚠️ Sin credencial, el sync no podrá activarse aunque desactives el modo local.</div>
         </div>
@@ -2555,7 +2557,7 @@ createApp({
     };
 
     // ── Integración con el servidor web ──
-    const integrationSettings = ref({ locationId: '', firebaseProjectId: '', localOnly: true, hasServiceAccount: false, envFilePath: '', envFileWritable: true });
+    const integrationSettings = ref({ locationId: '', firebaseProjectId: '', localOnly: true, hasServiceAccount: false, serviceAccountPath: '', envFilePath: '', envFileWritable: true });
     const integrationSavedAt = ref(0);
     const loadIntegrationSettings = async () => {
       try {
