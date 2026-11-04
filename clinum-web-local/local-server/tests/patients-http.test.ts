@@ -44,6 +44,9 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /const testVoice/);
       assert.match(script, /const formatDate/);
       assert.match(html, /msx-date/);
+      assert.match(script, /const toggleIntegrationSync/);
+      assert.match(script, /integrationSyncing/);
+      assert.match(html, /toggleIntegrationSync\(\$event\)/);
       assert.match(html, /Presencia/);
       assert.match(script, /const loadPresenceStatus/);
       assert.match(script, /presenceDrafts/);

@@ -1318,7 +1318,7 @@
             <label>Proyecto Firebase</label>
             <input type="text" class="full" v-model="integrationSettings.firebaseProjectId" placeholder="clinum-2">
           </div>
-          <label class="toggle"><input type="checkbox" :checked="!integrationSettings.localOnly" @change="integrationSettings.localOnly = !$event.target.checked"> Sincronizar con el servidor web (desactiva el modo solo-local)</label>
+          <label class="toggle"><input type="checkbox" :checked="!integrationSettings.localOnly" :disabled="integrationSyncing" @change="toggleIntegrationSync($event)"> Sincronizar con el servidor web (desactiva el modo solo-local)<span v-if="integrationSyncing"> · aplicando…</span></label>
         </div>
         <div class="cfg-info" :class="{ 'cfg-info-warn': !integrationSettings.hasServiceAccount }">
           <div>📄 Credencial Firebase: <strong>{{ integrationSettings.hasServiceAccount ? 'Encontrada' : 'No encontrada' }}</strong></div>
@@ -2559,6 +2559,7 @@ createApp({
     // ── Integración con el servidor web ──
     const integrationSettings = ref({ locationId: '', firebaseProjectId: '', localOnly: true, hasServiceAccount: false, serviceAccountPath: '', envFilePath: '', envFileWritable: true });
     const integrationSavedAt = ref(0);
+    const integrationSyncing = ref(false);
     const loadIntegrationSettings = async () => {
       try {
         integrationSettings.value = await fetch('/integration-settings').then(r => r.json());
@@ -2576,6 +2577,31 @@ createApp({
         integrationSavedAt.value = Date.now();
         setTimeout(() => { integrationSavedAt.value = 0; }, 4000);
       } catch (e) { console.error('saveIntegrationSettings failed', e); }
+    };
+
+    // Aplica el cambio de sync al instante (sin esperar a Guardar).
+    const toggleIntegrationSync = async (event) => {
+      const enabled = Boolean(event.target.checked);
+      if (integrationSyncing.value) return;
+      integrationSyncing.value = true;
+      try {
+        const response = await fetch('/integration-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ localOnly: !enabled }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'No se pudo cambiar el sync');
+        integrationSettings.value = result;
+      } catch (error) {
+        event.target.checked = !enabled;
+        integrationSettings.value = {
+          ...integrationSettings.value,
+          lastError: { message: error instanceof Error ? error.message : 'No se pudo cambiar el sync', atMs: Date.now() },
+        };
+      } finally {
+        integrationSyncing.value = false;
+      }
     };
 
     const applyGatewayStatus = (status) => {
@@ -2649,7 +2675,7 @@ createApp({
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
       patients, patientForm, patientSaving, patientError, patientMessage, assignedPatientName, openPatient, closePatient, savePatient, unassignPatient, removePatient, resendPatient,
       tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV,
-      integrationSettings, integrationSavedAt, loadIntegrationSettings, saveIntegrationSettings,
+      integrationSettings, integrationSavedAt, integrationSyncing, loadIntegrationSettings, saveIntegrationSettings, toggleIntegrationSync,
       connected, activeCalls, monitorCalls, specialCalls, filteredSpecialCalls, sortedSpecialCalls, specialProfiles,
       SPECIAL_CALL_TYPES, specialFilter, specialLampIds, specialCountByType, specialTypeIcon,
       devices, callers, sortedCallers, callerSortKey, callerSortDir, toggleCallerSort, toggleCallerSortDir, setCallerSortKey, callerSortMark,

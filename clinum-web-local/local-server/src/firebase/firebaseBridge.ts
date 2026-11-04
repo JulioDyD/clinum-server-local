@@ -56,6 +56,7 @@ export class FirebaseBridge {
       }
     }
     this.enabled = enabled;
+    this.lastError = null;
   }
 
   public isEnabled(): boolean {
