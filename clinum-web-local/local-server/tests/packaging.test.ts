@@ -37,6 +37,13 @@ test("official updater is installed on the site", () => {
   assert.match(wrapper, /id -u/);
 });
 
+test("site assignment is GUI-only (no --location-id in install/update)", () => {
+  for (const script of ["site-install.sh", "site-update.sh"]) {
+    assert.doesNotMatch(readPackaging(script), /--location-id/);
+  }
+  assert.match(readPackaging("lib.sh"), /verify_credential\(\)/);
+});
+
 test("Firebase credentials are provisioned atomically and injected by systemd", () => {
   const lib = readPackaging("lib.sh");
   assert.match(lib, /validate_service_account\(\)/);

@@ -127,21 +127,33 @@ SERIAL_PORT=/dev/ttyUSB1
 
 La credencial **no** se guarda en git ni en el `.deb`. Se entrega una vez por sede.
 
-### Sede nueva con sync
+### Sede nueva con credencial (la sede se asigna en el panel)
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh \
   --ref vX.Y.Z \
-  --location-id iXStZUMPAzQHyQ8RzsBf \
   --project clinum-2 \
   --service-account-file /root/clinum-sa.json \
+  --require-credential \
   --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
 - `/root/clinum-sa.json` es la clave de servicio del proyecto `clinum-2`
   (Firebase Console -> Configuracion del proyecto -> Cuentas de servicio).
 - Se instala en `/etc/clinum-web-local/service-account.json` con `0600 root:root`.
 - systemd la inyecta en `/run/credentials/clinum-web-local.service/firebase`.
-- El `.env` queda con `LOCAL_ONLY=0`, `LOCATION_ID` y `FIREBASE_PROJECT_ID`.
-- Al final se verifica `/integration-settings`.
+- El `.env` queda con `LOCAL_ONLY=1`, `LOCATION_ID` vacio y `FIREBASE_PROJECT_ID`.
+- El sync queda desactivado hasta asignar el ID en **Integracion**.
+- Al final se verifica la credencial.
+
+### Asignar la sede desde el panel
+1. En el web, crea la sede y copia su ID (`locations/{id}`).
+2. En el panel local -> **Configuracion -> Integracion**:
+   - Pega el ID en **ID de la sede**.
+   - Pulsa **Guardar** (guarda el ID, sin activar el sync).
+   - Activa **Sincronizar con el servidor web** (se aplica al instante).
+3. El servidor empieza a escribir con ese `locationId`.
+
+Las actualizaciones conservan el ID y el estado de sync. Si la sede no tiene ID,
+sigue en local-only.
 
 ### Actualizar una sede
 ```bash
@@ -173,8 +185,8 @@ sudo bash /opt/clinum-web-local/packaging/site-update.sh --ref vX.Y.Z --yes
 ### Entrega por stdin (sin archivo temporal visible)
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh --ref vX.Y.Z \
-  --location-id iXStZUMPAzQHyQ8RzsBf --project clinum-2 \
-  --service-account-stdin --yes < /root/clinum-sa.json
+  --project clinum-2 --service-account-stdin --require-credential \
+  --yes < /root/clinum-sa.json
 ```
 
 ### Proteccion

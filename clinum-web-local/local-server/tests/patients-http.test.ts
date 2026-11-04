@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -46,7 +46,9 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(html, /msx-date/);
       assert.match(script, /const toggleIntegrationSync/);
       assert.match(script, /integrationSyncing/);
+      assert.match(script, /integrationSavedLocationId/);
       assert.match(html, /toggleIntegrationSync\(\$event\)/);
+      assert.match(html, /Guarda el ID de la sede antes de activar el sync/);
       assert.match(html, /Presencia/);
       assert.match(script, /const loadPresenceStatus/);
       assert.match(script, /presenceDrafts/);
@@ -102,12 +104,22 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
   store.registerDevice("CALLER000001", "", "Cama 1");
   store.applyCallStart("CALLER000001", 1, 2, "emergency");
   store.close();
+  const envFile = join(dir, ".env");
+  writeFileSync(envFile, "LOCAL_ONLY=1\nLOCATION_ID=\nFIREBASE_PROJECT_ID=clinum-2\n");
   const listener = createServer();
   await new Promise<void>(resolve => listener.listen(0, "127.0.0.1", resolve));
   const port = (listener.address() as { port: number }).port;
   await new Promise<void>(resolve => listener.close(() => resolve()));
   const child = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], {
-    env: { ...process.env, SERIAL_PORT: "none", LOCAL_ONLY: "1", LOCAL_DB_FILE: db, LOCAL_HTTP_PORT: String(port) },
+    env: {
+      ...process.env,
+      SERIAL_PORT: "none",
+      LOCAL_ONLY: "1",
+      LOCAL_DB_FILE: db,
+      LOCAL_HTTP_PORT: String(port),
+      ENV_FILE_PATH: envFile,
+      GOOGLE_APPLICATION_CREDENTIALS: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let logs = "";
@@ -126,6 +138,16 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(ready, logs);
+    const integrationInitial = (await request("/integration-settings")).data;
+    assert.equal(integrationInitial.locationId, "");
+    assert.equal(integrationInitial.localOnly, true);
+    const syncWithoutLocation = await request("/integration-settings", "PATCH", { localOnly: false });
+    assert.equal(syncWithoutLocation.status, 400);
+    assert.match(syncWithoutLocation.data.error, /ID de la sede/);
+    const saveLocation = await request("/integration-settings", "PATCH", { locationId: "TESTSITE", localOnly: true });
+    assert.equal(saveLocation.status, 200);
+    assert.equal(saveLocation.data.locationId, "TESTSITE");
+    assert.equal(saveLocation.data.localOnly, true);
     assert.equal((await request("/patients", "POST", { name: "", age: 12 })).status, 400);
     const created = await request("/patients", "POST", { name: "José, Pérez", age: 30, notes: "Revisión mañana", assignedDevice: "CALLER000001" });
     assert.equal(created.status, 201);

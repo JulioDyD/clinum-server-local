@@ -218,6 +218,27 @@ else:
 PY
 }
 
+# Comprueba que la credencial este disponible y sin error, sin exigir sync activo.
+verify_credential() {
+  local port="${1:-8081}" scheme insecure="" json
+  scheme="$(site_scheme)"
+  [ "$scheme" = "https" ] && insecure="-k"
+  json="$(curl -fsS $insecure "${scheme}://127.0.0.1:${port}/integration-settings" 2>/dev/null)" || {
+    warn "No se pudo consultar /integration-settings"
+    return 1
+  }
+  python3 - "$json" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+if not data.get("hasServiceAccount"):
+    print("Credencial no encontrada por el servidor", file=sys.stderr); sys.exit(1)
+err = data.get("lastError")
+if err:
+    msg = err.get("message", err) if isinstance(err, dict) else err
+    print(f"Error de sync: {msg}", file=sys.stderr); sys.exit(1)
+PY
+}
+
 detect_serial() {
   local prefer="${1:-}"
   # Explicit path always wins. Empty or "auto" => fixed default (gateway uses ttyACM0).

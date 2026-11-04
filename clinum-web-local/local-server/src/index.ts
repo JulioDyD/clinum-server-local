@@ -944,7 +944,15 @@ app.get("/integration-settings", async () => ({ ...getIntegrationSettings(), loc
 
 app.patch<{ Body: IntegrationSettingsInput }>("/integration-settings", async (req, reply) => {
   try {
-    const settings = updateIntegrationSettings(req.body ?? {});
+    const body = req.body ?? {};
+    const current = getIntegrationSettings();
+    const requestedLocationId = body.locationId;
+    const nextLocationId = String(requestedLocationId !== undefined ? requestedLocationId : current.locationId ?? "").trim();
+    const nextLocalOnly = body.localOnly !== undefined ? body.localOnly : current.localOnly;
+    if (!nextLocalOnly && !nextLocationId) {
+      return reply.status(400).send({ error: "Asigna el ID de la sede antes de activar el sync." });
+    }
+    const settings = updateIntegrationSettings(body);
     // Aplica en caliente: activar/desactivar sync y cambiar de sede no requieren reiniciar.
     // Cambiar de proyecto Firebase sí (el SDK de Admin ya quedó atado al proyecto inicial).
     firebase.setLocationId(settings.locationId);

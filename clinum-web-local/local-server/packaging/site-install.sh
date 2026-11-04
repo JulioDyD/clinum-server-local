@@ -5,7 +5,7 @@
 # Usage:
 #   sudo bash site-install.sh [--repo URL] [--ref main|v1.2.3]
 #       [--serial /dev/ttyACM0] [--http-port 8081] [--https] [--workdir /tmp] [--yes]
-#       [--location-id ID] [--project clinum-2]
+#       [--project clinum-2]
 #       [--service-account-file /root/clinum-sa.json | --service-account-stdin]
 #       [--require-credential]
 #   Default serial is /dev/ttyACM0. Plain HTTP by default; --https enables
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; SERIAL_PREFER="$DEFAULT_SERIAL_PORT"
 HTTP_PORT="$DEFAULT_HTTP_PORT"; WORKDIR="/tmp"; ASSUME_YES=0; LOCAL_MODE=0; USE_HTTPS=0
-LOCATION_ID=""; PROJECT_ID="clinum-2"; SERVICE_ACCOUNT_FILE=""; SERVICE_ACCOUNT_STDIN=0; REQUIRE_CREDENTIAL=0
+PROJECT_ID="clinum-2"; SERVICE_ACCOUNT_FILE=""; SERVICE_ACCOUNT_STDIN=0; REQUIRE_CREDENTIAL=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,7 +29,6 @@ while [ $# -gt 0 ]; do
     --http-port) HTTP_PORT="${2:?}"; shift 2 ;;
     --https) USE_HTTPS=1; shift ;;
     --workdir) WORKDIR="${2:?}"; shift 2 ;;
-    --location-id) LOCATION_ID="${2:?}"; shift 2 ;;
     --project) PROJECT_ID="${2:?}"; shift 2 ;;
     --service-account-file) SERVICE_ACCOUNT_FILE="${2:?}"; shift 2 ;;
     --service-account-stdin) SERVICE_ACCOUNT_STDIN=1; shift ;;
@@ -64,7 +63,6 @@ fi
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
   [ -f "$SERVICE_ACCOUNT_FILE" ] || die "No existe la credencial: $SERVICE_ACCOUNT_FILE"
   validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
-  [ -n "$LOCATION_ID" ] || die "Con credencial, indica --location-id (doc locations/{id} del web)"
 elif [ "$REQUIRE_CREDENTIAL" -eq 1 ]; then
   die "Falta --service-account-file o --service-account-stdin"
 fi
@@ -131,15 +129,14 @@ if getent passwd soporte >/dev/null; then
 fi
 
 # Integracion con el servidor web (Firebase clinum-2)
-if [ -n "$LOCATION_ID" ]; then set_env_key "LOCATION_ID" "$LOCATION_ID" "$ENVFILE"; fi
 set_env_key "FIREBASE_PROJECT_ID" "$PROJECT_ID" "$ENVFILE"
+# La sede se asigna desde el panel de Integracion; hasta entonces queda local-only.
+set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
-  set_env_key "LOCAL_ONLY" "0" "$ENVFILE"
   install_service_account_atomic "$SERVICE_ACCOUNT_FILE"
   enable_systemd_credential
-  log "Credencial Firebase instalada (0600 root:root + systemd)"
+  log "Credencial Firebase instalada (0600 root:root + systemd). Asigna el ID de la sede en el panel."
 else
-  set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
   disable_systemd_credential || true
   warn "Sin credencial: la sede queda en modo local-only."
 fi
@@ -151,10 +148,10 @@ systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager || true
 health_check "$HTTP_PORT" || true
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
-  if verify_integration "$HTTP_PORT" 1; then
-    log "Integracion verificada: sync activo."
+  if verify_credential "$HTTP_PORT"; then
+    log "Credencial verificada. Asigna el ID de la sede en el panel para activar el sync."
   else
-    warn "La sede quedo instalada, pero la verificacion de sync fallo. Revisa: journalctl -u $SERVICE_NAME -f"
+    warn "La sede quedo instalada, pero la verificacion de la credencial fallo. Revisa: journalctl -u $SERVICE_NAME -f"
   fi
 else
   verify_integration "$HTTP_PORT" 0 || true

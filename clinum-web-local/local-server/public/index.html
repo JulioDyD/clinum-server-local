@@ -1318,13 +1318,14 @@
             <label>Proyecto Firebase</label>
             <input type="text" class="full" v-model="integrationSettings.firebaseProjectId" placeholder="clinum-2">
           </div>
-          <label class="toggle"><input type="checkbox" :checked="!integrationSettings.localOnly" :disabled="integrationSyncing" @change="toggleIntegrationSync($event)"> Sincronizar con el servidor web (desactiva el modo solo-local)<span v-if="integrationSyncing"> · aplicando…</span></label>
+          <label class="toggle"><input type="checkbox" :checked="!integrationSettings.localOnly" :disabled="integrationSyncing || (!integrationSettings.localOnly && (!integrationSettings.locationId || integrationSettings.locationId !== integrationSavedLocationId))" @change="toggleIntegrationSync($event)"> Sincronizar con el servidor web (desactiva el modo solo-local)<span v-if="integrationSyncing"> · aplicando…</span></label>
         </div>
         <div class="cfg-info" :class="{ 'cfg-info-warn': !integrationSettings.hasServiceAccount }">
           <div>📄 Credencial Firebase: <strong>{{ integrationSettings.hasServiceAccount ? 'Encontrada' : 'No encontrada' }}</strong></div>
           <div>📁 Archivo de configuración: <span class="mono">{{ integrationSettings.envFilePath }}</span></div>
           <div>🔑 Ruta de la credencial: <span class="mono">{{ integrationSettings.serviceAccountPath || '—' }}</span></div>
           <div v-if="integrationSettings.hasServiceAccount">🔒 La credencial se administra en el sistema (0600 root:root + systemd) y no se muestra aquí.</div>
+          <div v-if="!integrationSettings.locationId || integrationSettings.locationId !== integrationSavedLocationId">⚠️ Guarda el ID de la sede antes de activar el sync.</div>
           <div v-if="!integrationSettings.envFileWritable">⚠️ Este archivo no es escribible por el servidor; guarda manualmente o ajusta permisos.</div>
           <div v-if="!integrationSettings.hasServiceAccount">⚠️ Sin credencial, el sync no podrá activarse aunque desactives el modo local.</div>
         </div>
@@ -2560,9 +2561,12 @@ createApp({
     const integrationSettings = ref({ locationId: '', firebaseProjectId: '', localOnly: true, hasServiceAccount: false, serviceAccountPath: '', envFilePath: '', envFileWritable: true });
     const integrationSavedAt = ref(0);
     const integrationSyncing = ref(false);
+    const integrationSavedLocationId = ref('');
     const loadIntegrationSettings = async () => {
       try {
-        integrationSettings.value = await fetch('/integration-settings').then(r => r.json());
+        const data = await fetch('/integration-settings').then(r => r.json());
+        integrationSettings.value = data;
+        integrationSavedLocationId.value = data.locationId || '';
       } catch (e) { console.error('loadIntegrationSettings failed', e); }
     };
     const saveIntegrationSettings = async () => {
@@ -2572,8 +2576,17 @@ createApp({
           firebaseProjectId: integrationSettings.value.firebaseProjectId,
           localOnly: integrationSettings.value.localOnly,
         };
-        const response = await fetch('/integration-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
-        integrationSettings.value = response;
+        const response = await fetch('/integration-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const result = await response.json();
+        if (!response.ok) {
+          integrationSettings.value = {
+            ...integrationSettings.value,
+            lastError: { message: result.error || 'No se pudo guardar la integración', atMs: Date.now() },
+          };
+          return;
+        }
+        integrationSettings.value = result;
+        integrationSavedLocationId.value = result.locationId || '';
         integrationSavedAt.value = Date.now();
         setTimeout(() => { integrationSavedAt.value = 0; }, 4000);
       } catch (e) { console.error('saveIntegrationSettings failed', e); }
@@ -2583,6 +2596,14 @@ createApp({
     const toggleIntegrationSync = async (event) => {
       const enabled = Boolean(event.target.checked);
       if (integrationSyncing.value) return;
+      if (enabled && (!integrationSettings.value.locationId || integrationSettings.value.locationId !== integrationSavedLocationId.value)) {
+        event.target.checked = false;
+        integrationSettings.value = {
+          ...integrationSettings.value,
+          lastError: { message: 'Guarda el ID de la sede antes de activar el sync.', atMs: Date.now() },
+        };
+        return;
+      }
       integrationSyncing.value = true;
       try {
         const response = await fetch('/integration-settings', {
@@ -2593,6 +2614,7 @@ createApp({
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'No se pudo cambiar el sync');
         integrationSettings.value = result;
+        integrationSavedLocationId.value = result.locationId || '';
       } catch (error) {
         event.target.checked = !enabled;
         integrationSettings.value = {
@@ -2675,7 +2697,7 @@ createApp({
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
       patients, patientForm, patientSaving, patientError, patientMessage, assignedPatientName, openPatient, closePatient, savePatient, unassignPatient, removePatient, resendPatient,
       tab, menuOpen, settingsTab, reportFilters, reportRows, filteredReports, reportStats, reportByType, loadReports, clearReportFilters, exportReportsCSV,
-      integrationSettings, integrationSavedAt, integrationSyncing, loadIntegrationSettings, saveIntegrationSettings, toggleIntegrationSync,
+      integrationSettings, integrationSavedAt, integrationSyncing, integrationSavedLocationId, loadIntegrationSettings, saveIntegrationSettings, toggleIntegrationSync,
       connected, activeCalls, monitorCalls, specialCalls, filteredSpecialCalls, sortedSpecialCalls, specialProfiles,
       SPECIAL_CALL_TYPES, specialFilter, specialLampIds, specialCountByType, specialTypeIcon,
       devices, callers, sortedCallers, callerSortKey, callerSortDir, toggleCallerSort, toggleCallerSortDir, setCallerSortKey, callerSortMark,
