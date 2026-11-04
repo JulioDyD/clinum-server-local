@@ -1234,7 +1234,10 @@ function csvCell(value) {
 app.get("/presence/status", async () => presenceStatusPayload());
 app.get("/presence/settings", async () => store.getPresenceSettings());
 app.patch("/presence/settings", async (req) => {
-    const settings = store.updatePresenceSettings(req.body ?? {});
+    const body = { ...(req.body ?? {}) };
+    if (body.detectionSound !== undefined && !isPlayableSound(body.detectionSound))
+        delete body.detectionSound;
+    const settings = store.updatePresenceSettings(body);
     if (!settings.enabled) {
         for (const [deviceId, runtime] of presenceRuntime) {
             if (runtime.sessionId)

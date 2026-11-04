@@ -54,7 +54,9 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /presenceDrafts/);
       assert.match(html, /presence-card/);
       assert.match(html, /Alerta auditiva al detectar/);
+      assert.match(html, /Sonido de detección/);
       assert.match(script, /soundOnDetection/);
+      assert.match(script, /detectionSound/);
       assert.doesNotMatch(script, /bell\.mp3/);
       assert.doesNotMatch(script, /chime\.mp3/);
     } else {
@@ -76,6 +78,8 @@ test("patient HTML templates compile and their scripts are valid JavaScript", ()
       assert.match(script, /presence_detection/);
       assert.match(script, /soundOnDetection/);
       assert.match(script, /maybePlayPresenceSound/);
+      assert.match(script, /playPresenceSound/);
+      assert.match(script, /detectionSound/);
       assert.match(script, /previous !== 'occupied'/);
       assert.match(html, /presence-board/);
       assert.match(script, /hay un llamado de emergencia pendiente por finalizar/);
@@ -195,6 +199,11 @@ test("patient REST CRUD updates call names and preserves clinical state", { time
     const presenceSettings = (await request("/presence/settings", "PATCH", { enabled: true, showOnLocation: true, soundOnDetection: true })).data;
     assert.equal(presenceSettings.enabled, true);
     assert.equal(presenceSettings.soundOnDetection, true);
+    assert.equal(presenceSettings.detectionSound, "alert.mp3");
+    const badPresenceSound = (await request("/presence/settings", "PATCH", { detectionSound: "bell.mp3" })).data;
+    assert.equal(badPresenceSound.detectionSound, "alert.mp3");
+    const goodPresenceSound = (await request("/presence/settings", "PATCH", { detectionSound: "ding.mp3" })).data;
+    assert.equal(goodPresenceSound.detectionSound, "ding.mp3");
     assert.equal((await request("/presence/sessions")).data.items.length, 0);
     const presenceCsv = await fetch(base + "/presence/sessions.csv");
     assert.equal(presenceCsv.status, 200);

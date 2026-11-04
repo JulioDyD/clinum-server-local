@@ -106,8 +106,10 @@ export type PresenceSettings = {
   staleS: number;
   longStayMin: number;
   alertEnabled: boolean;
-  /** Reproduce el sonido normal cuando se detecta una entrada al baño */
+  /** Reproduce un sonido cuando se detecta una entrada al baño */
   soundOnDetection: boolean;
+  /** Archivo de sonido para la deteccion de presencia */
+  detectionSound: string;
 };
 
 export type PresenceStateValue = "free" | "occupied" | "unknown";

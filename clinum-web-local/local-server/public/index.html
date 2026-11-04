@@ -1435,6 +1435,7 @@
           <label class="toggle"><input type="checkbox" v-model="presenceSettings.showFreeOnLocation"> Mostrar baños libres</label>
           <label class="toggle"><input type="checkbox" v-model="presenceSettings.alertEnabled"> Alerta por permanencia</label>
           <label class="toggle"><input type="checkbox" v-model="presenceSettings.soundOnDetection"> Alerta auditiva al detectar</label>
+          <div class="field"><label>Sonido de detección</label><select v-model="presenceSettings.detectionSound"><option v-for="file in soundFiles" :key="file" :value="file">{{ file }}</option></select></div>
           <div class="field"><label>Salida con gracia (s)</label><input type="number" min="0" max="300" v-model.number="presenceSettings.exitGraceS"></div>
           <div class="field"><label>Sesión mínima (s)</label><input type="number" min="0" max="300" v-model.number="presenceSettings.minSessionS"></div>
           <div class="field"><label>Sin datos tras (s)</label><input type="number" min="30" max="3600" v-model.number="presenceSettings.staleS"></div>
@@ -1884,6 +1885,7 @@ createApp({
     const presenceSettings = ref({
       enabled: false, showOnLocation: false, showFreeOnLocation: true,
       exitGraceS: 20, minSessionS: 5, staleS: 180, longStayMin: 15, alertEnabled: true, soundOnDetection: false,
+      detectionSound: 'alert.mp3',
     });
     const presenceSessions = ref([]);
     const presenceFilters = ref({ from: '', to: '', deviceId: '', open: '' });

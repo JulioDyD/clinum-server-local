@@ -213,6 +213,7 @@ createApp({
     const presenceStatus = ref({ settings: {}, states: [] });
     const presenceStates = new Map();
     let lastPresenceSoundAt = 0;
+    let presencePlayer = null;
     const MAX_SPEECH_QUEUE = 5;
     const SPEECH_WATCHDOG_MS = 12000;
     let speechAdvanceTimer = null;
@@ -391,7 +392,7 @@ createApp({
       const now = Date.now();
       if (now - lastPresenceSoundAt < 2000) return;
       lastPresenceSoundAt = now;
-      playAlertSound(false);
+      playPresenceSound();
     };
 
     const formatCallTime = (call) => {
@@ -475,6 +476,17 @@ createApp({
         try { el.currentTime = 0; } catch {}
         el.play().catch(() => playFallbackSound(isEmergency, vol));
       } catch (e) { playFallbackSound(isEmergency, vol); }
+    };
+
+    const playPresenceSound = () => {
+      if (!settings.value.soundEnabled) return;
+      const file = (presenceStatus.value.settings || {}).detectionSound || 'alert.mp3';
+      const vol = clampVolume(Number(settings.value.soundVolume ?? 80) / 100, 0.8);
+      if (!presencePlayer) presencePlayer = new Audio();
+      setAudioSrc(presencePlayer, `/sounds/${file}`);
+      presencePlayer.volume = vol;
+      try { presencePlayer.currentTime = 0; } catch {}
+      presencePlayer.play().catch(() => {});
     };
 
     // ── Voz ──

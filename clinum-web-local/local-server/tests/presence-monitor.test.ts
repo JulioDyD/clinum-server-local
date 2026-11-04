@@ -23,6 +23,7 @@ test("presence settings default disabled with expected thresholds", () => {
     assert.equal(settings.longStayMin, 15);
     assert.equal(settings.alertEnabled, true);
     assert.equal(settings.soundOnDetection, false);
+    assert.equal(settings.detectionSound, "alert.mp3");
   } finally {
     store.close();
   }
