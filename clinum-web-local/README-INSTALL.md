@@ -130,24 +130,25 @@ se entrega una vez por sede.
 
 ### Generar la credencial cifrada (Linux/WSL)
 ```bash
+cd clinum-web-local/local-server
 bash packaging/encrypt-secret.sh \
   --service-account /root/clinum-sa.json \
-  --init --key-out /root/clinum-age.key
+  --init
 ```
-- Genera `/root/clinum-age.key` (`0600`) y la clave publica.
+- Genera `secrets/age.key` (`0600`) y la clave publica.
 - Cifra en `secrets/firebase-service-account.json.age`.
-- Commitea solo el `.age`.
-- Entrega `/root/clinum-age.key` a cada sede (`0600`).
+- Commitea **ambos** archivos.
+- El repositorio debe ser privado: la llave age queda en el repo.
 
 ### Sede nueva con credencial cifrada
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh \
   --ref vX.Y.Z \
   --project clinum-2 \
-  --age-key-file /root/clinum-age.key \
   --require-credential \
   --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
+- Usa automaticamente `secrets/age.key` del repo.
 - Instala la llave age en `/etc/clinum-web-local/age.key` (`0600 root`).
 - Descifra `secrets/firebase-service-account.json.age` del repo.
 - Instala la credencial en `/etc/clinum-web-local/service-account.json` con
@@ -170,23 +171,15 @@ sigue en local-only.
 
 ### Actualizar una sede
 ```bash
-# Primera actualizacion a v1.5.0: instala la llave compartida
-sudo bash clinum-web-local/local-server/packaging/site-update.sh \
-  --ref v1.5.0 --age-key-file /root/clinum-age.key --yes
-
-# Siguientes actualizaciones
 sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
 ```
-- Si el `.age` del repo cambia, se descifra y actualiza la credencial.
+- Usa `secrets/age.key` y el `.age` del repo automaticamente.
+- Si el `.age` cambia, descifra y actualiza la credencial.
 - Sin `.age`/llave, conserva la credencial existente.
 - Conserva `LOCATION_ID` y el estado de sync.
 
 ### Actualizar sin clonar (desde v1.4.1)
 ```bash
-# Primera actualizacion a v1.5.0 (instala la llave)
-sudo clinum-update --ref v1.5.0 --age-key-file /root/clinum-age.key --yes
-
-# Siguientes
 sudo clinum-update --ref vX.Y.Z --yes
 ```
 o
@@ -206,9 +199,11 @@ sudo bash clinum-web-local/local-server/packaging/site-install.sh --ref vX.Y.Z \
 - Tambien existe `--service-account-stdin` con `--yes < /root/clinum-sa.json`.
 
 ### Proteccion
-- `secrets/firebase-service-account.json.age` cifrado en git; sin la llave age no se puede leer.
-- Llave age en `/etc/clinum-web-local/age.key` con `0600 root`; no se commitea.
+- `secrets/firebase-service-account.json.age` y `secrets/age.key` viven en el repo privado.
+- El instalador/updater usan `secrets/age.key` automaticamente.
+- En la sede, la llave queda en `/etc/clinum-web-local/age.key` con `0600 root`.
 - Credencial descifrada en `/etc/clinum-web-local/service-account.json` con `0600 root:root`.
+- Si la llave o el repo se filtran, rota la credencial y la llave.
 - `systemd LoadCredential` la entrega al servicio desde un tmpfs privado.
 - El grupo `clinum`/`soporte` no puede leer el JSON.
 - El panel solo muestra si existe; no permite subirlo.

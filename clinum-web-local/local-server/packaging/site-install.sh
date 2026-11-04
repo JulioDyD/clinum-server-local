@@ -67,8 +67,6 @@ fi
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
   [ -f "$SERVICE_ACCOUNT_FILE" ] || die "No existe la credencial: $SERVICE_ACCOUNT_FILE"
   validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
-elif [ "$REQUIRE_CREDENTIAL" -eq 1 ] && [ -z "$AGE_KEY_FILE" ]; then
-  die "Falta --service-account-file, --service-account-stdin o --age-key-file"
 fi
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -138,6 +136,10 @@ set_env_key "FIREBASE_PROJECT_ID" "$PROJECT_ID" "$ENVFILE"
 set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
 
 # Credencial cifrada en git + llave age compartida.
+# Si la llave esta en el repo (secrets/age.key), se usa automaticamente.
+if [ -z "$AGE_KEY_FILE" ] && [ -f "$APP_DIR/secrets/age.key" ]; then
+  AGE_KEY_FILE="$APP_DIR/secrets/age.key"
+fi
 if [ -n "$AGE_KEY_FILE" ]; then install_age_key "$AGE_KEY_FILE"; fi
 if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -z "$ENCRYPTED_SECRET" ]; then
   ENCRYPTED_SECRET="$APP_DIR/secrets/firebase-service-account.json.age"

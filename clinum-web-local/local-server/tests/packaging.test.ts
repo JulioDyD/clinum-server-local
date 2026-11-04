@@ -53,17 +53,20 @@ test("encrypted credentials and age flow are wired", () => {
   const encrypt = readPackaging("encrypt-secret.sh");
   assert.match(encrypt, /age -r/);
   assert.match(encrypt, /age-keygen/);
+  assert.match(encrypt, /secrets\/age\.key/);
 
   for (const script of ["site-install.sh", "site-update.sh"]) {
     const text = readPackaging(script);
     assert.match(text, /--age-key-file/);
     assert.match(text, /--encrypted-secret/);
     assert.match(text, /decrypt_service_account/);
+    assert.match(text, /\$APP_DIR\/secrets\/age\.key/);
   }
 
   assert.doesNotMatch(readPackaging("build-deb.sh"), /secrets/);
   const gitignore = readFileSync(resolve("..", "..", ".gitignore"), "utf8");
   assert.match(gitignore, /secrets\/\*\.json/);
+  assert.match(gitignore, /!clinum-web-local\/local-server\/secrets\/age\.key/);
 });
 
 test("Firebase credentials are provisioned atomically and injected by systemd", () => {

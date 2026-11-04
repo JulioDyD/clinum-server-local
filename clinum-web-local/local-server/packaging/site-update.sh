@@ -130,6 +130,10 @@ chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
 if getent passwd soporte >/dev/null; then
   adduser soporte clinum >/dev/null 2>&1 || true
 fi
+# Si la llave esta en el repo (secrets/age.key), se usa automaticamente.
+if [ -z "$AGE_KEY_FILE" ] && [ -f "$APP_DIR/secrets/age.key" ]; then
+  AGE_KEY_FILE="$APP_DIR/secrets/age.key"
+fi
 if [ -n "$AGE_KEY_FILE" ]; then install_age_key "$AGE_KEY_FILE"; fi
 if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -z "$ENCRYPTED_SECRET" ]; then
   ENCRYPTED_SECRET="$APP_DIR/secrets/firebase-service-account.json.age"

@@ -8,7 +8,10 @@ service-account.json
 # Credenciales cifradas: solo .age se commitea
 clinum-web-local/local-server/secrets/*.json
 clinum-web-local/local-server/age.key
+clinum-web-local/local-server/clinum-age.key
 *.age.key
+# La llave age se guarda en el repo por simplicidad (repo privado)
+!clinum-web-local/local-server/secrets/age.key
 
 # ── Bases de datos locales ─────────────────────────────────────────
 *.db

@@ -14,7 +14,7 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_OUT="$APP_ROOT/secrets/firebase-service-account.json.age"
 
 SERVICE_ACCOUNT=""; PUBLIC_KEY=""; OUT="$DEFAULT_OUT"
-PROJECT_ID="clinum-2"; KEY_OUT="/root/clinum-age.key"; INIT=0; FORCE=0
+PROJECT_ID="clinum-2"; KEY_OUT="$APP_ROOT/secrets/age.key"; INIT=0; FORCE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,6 +46,7 @@ if [ "$INIT" -eq 1 ]; then
   fi
   chmod 0600 "$KEY_OUT"
   PUBLIC_KEY="$(age-keygen -y "$KEY_OUT")"
+  warn "La llave privada se guardara en el repo ($KEY_OUT). Usa un repositorio privado y limita el acceso."
 fi
 
 [ -n "$PUBLIC_KEY" ] || die "Falta --public-key o --init"
