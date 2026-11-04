@@ -1,0 +1,14 @@
+#!/bin/bash
+# Actualizador oficial de la sede. No requiere clonar el repo a mano.
+set -e
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Ejecuta con sudo: sudo clinum-update --ref vX.Y.Z --yes" >&2
+  exit 1
+fi
+for arg in "$@"; do
+  if [ "$arg" = "--local" ]; then
+    echo "El actualizador instalado no soporta --local; usa --ref vX.Y.Z" >&2
+    exit 1
+  fi
+done
+exec bash /opt/clinum-web-local/packaging/site-update.sh "$@"

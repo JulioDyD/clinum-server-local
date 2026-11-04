@@ -89,6 +89,14 @@ cp -r "$APP_DIR/public"       "$OPT/public"
 # dist/index.js (ESM imports), and /health reports the installed version.
 cp -f "$APP_DIR/package.json" "$OPT/package.json"
 
+# Actualizador oficial instalado en la sede (sin clon manual).
+rm -rf "$OPT/packaging"
+mkdir -p "$OPT/packaging"
+cp -f "$APP_DIR/packaging/site-update.sh" "$OPT/packaging/site-update.sh"
+cp -f "$APP_DIR/packaging/lib.sh" "$OPT/packaging/lib.sh"
+chmod 0755 "$OPT/packaging/site-update.sh"
+chmod 0644 "$OPT/packaging/lib.sh"
+
 # 4. Control con la arquitectura correcta (sin mutar el template en git:
 #    se construye sobre una copia temporal del arbol).
 STAGE="$(mktemp -d)"
@@ -107,6 +115,7 @@ SROOT="$STAGE/root"
 SDEBIAN="$SROOT/DEBIAN"
 SOPT="$SROOT/opt/$PKG_NAME"
 chmod 0755 "$SDEBIAN/postinst" "$SDEBIAN/prerm" "$SDEBIAN/postrm" "$SOPT/run.sh"
+chmod 0755 "$SROOT/usr/local/bin/clinum-update"
 chmod 0644 "$SDEBIAN/control" "$SDEBIAN/conffiles"
 
 # 5b. Permisos de directorios (dpkg-deb exige 0755..0775 en DEBIAN y el arbol)

@@ -156,6 +156,20 @@ sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z \
 - Con archivo nuevo: se valida, se reemplaza atomicamente y se guarda `.bak`.
 - Si la verificacion falla, se restaura la credencial y el `.env` anteriores.
 
+### Actualizar sin clonar (desde v1.4.1)
+```bash
+sudo clinum-update --ref vX.Y.Z --yes
+```
+o
+```bash
+sudo bash /opt/clinum-web-local/packaging/site-update.sh --ref vX.Y.Z --yes
+```
+- El updater queda instalado en `/opt/clinum-web-local/packaging/`.
+- No uses `--local` desde `/opt`; el flujo oficial es con `--ref`.
+- La primera actualización a v1.4.1 todavía requiere el clon temporal
+  (la sede viene de v1.4.0).
+- Después ya no hace falta clonar.
+
 ### Entrega por stdin (sin archivo temporal visible)
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh --ref vX.Y.Z \

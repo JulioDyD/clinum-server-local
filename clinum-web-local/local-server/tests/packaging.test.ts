@@ -26,6 +26,17 @@ test("deb packaging copies only app artifacts", () => {
   assert.doesNotMatch(text, /alert-lamp|call-lcd|gatenway|gateway-esp32|lora_transport/);
 });
 
+test("official updater is installed on the site", () => {
+  const build = readPackaging("build-deb.sh");
+  assert.match(build, /cp -f "\$APP_DIR\/packaging\/site-update\.sh"/);
+  assert.match(build, /cp -f "\$APP_DIR\/packaging\/lib\.sh"/);
+  assert.match(build, /clinum-update/);
+
+  const wrapper = readFileSync(resolve("packaging/deb-root/usr/local/bin/clinum-update"), "utf8");
+  assert.match(wrapper, /\/opt\/clinum-web-local\/packaging\/site-update\.sh/);
+  assert.match(wrapper, /id -u/);
+});
+
 test("Firebase credentials are provisioned atomically and injected by systemd", () => {
   const lib = readPackaging("lib.sh");
   assert.match(lib, /validate_service_account\(\)/);
