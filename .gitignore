@@ -5,6 +5,10 @@
 !.env.example
 service-account.json
 *-firebase-adminsdk-*.json
+# Credenciales cifradas: solo .age se commitea
+clinum-web-local/local-server/secrets/*.json
+clinum-web-local/local-server/age.key
+*.age.key
 
 # ── Bases de datos locales ─────────────────────────────────────────
 *.db

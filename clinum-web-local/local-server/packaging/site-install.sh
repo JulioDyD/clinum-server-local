@@ -7,6 +7,7 @@
 #       [--serial /dev/ttyACM0] [--http-port 8081] [--https] [--workdir /tmp] [--yes]
 #       [--project clinum-2]
 #       [--service-account-file /root/clinum-sa.json | --service-account-stdin]
+#       [--age-key-file /root/clinum-age.key] [--encrypted-secret RUTA]
 #       [--require-credential]
 #   Default serial is /dev/ttyACM0. Plain HTTP by default; --https enables
 #   HTTPS with the site-internal CA (clients must install ca.crt once).
@@ -20,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; SERIAL_PREFER="$DEFAULT_SERIAL_PORT"
 HTTP_PORT="$DEFAULT_HTTP_PORT"; WORKDIR="/tmp"; ASSUME_YES=0; LOCAL_MODE=0; USE_HTTPS=0
 PROJECT_ID="clinum-2"; SERVICE_ACCOUNT_FILE=""; SERVICE_ACCOUNT_STDIN=0; REQUIRE_CREDENTIAL=0
+AGE_KEY_FILE=""; ENCRYPTED_SECRET=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,6 +34,8 @@ while [ $# -gt 0 ]; do
     --project) PROJECT_ID="${2:?}"; shift 2 ;;
     --service-account-file) SERVICE_ACCOUNT_FILE="${2:?}"; shift 2 ;;
     --service-account-stdin) SERVICE_ACCOUNT_STDIN=1; shift ;;
+    --age-key-file) AGE_KEY_FILE="${2:?}"; shift 2 ;;
+    --encrypted-secret) ENCRYPTED_SECRET="${2:?}"; shift 2 ;;
     --require-credential) REQUIRE_CREDENTIAL=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --local) LOCAL_MODE=1; shift ;;
@@ -63,8 +67,8 @@ fi
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
   [ -f "$SERVICE_ACCOUNT_FILE" ] || die "No existe la credencial: $SERVICE_ACCOUNT_FILE"
   validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
-elif [ "$REQUIRE_CREDENTIAL" -eq 1 ]; then
-  die "Falta --service-account-file o --service-account-stdin"
+elif [ "$REQUIRE_CREDENTIAL" -eq 1 ] && [ -z "$AGE_KEY_FILE" ]; then
+  die "Falta --service-account-file, --service-account-stdin o --age-key-file"
 fi
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -132,10 +136,24 @@ fi
 set_env_key "FIREBASE_PROJECT_ID" "$PROJECT_ID" "$ENVFILE"
 # La sede se asigna desde el panel de Integracion; hasta entonces queda local-only.
 set_env_key "LOCAL_ONLY" "1" "$ENVFILE"
+
+# Credencial cifrada en git + llave age compartida.
+if [ -n "$AGE_KEY_FILE" ]; then install_age_key "$AGE_KEY_FILE"; fi
+if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -z "$ENCRYPTED_SECRET" ]; then
+  ENCRYPTED_SECRET="$APP_DIR/secrets/firebase-service-account.json.age"
+fi
+if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -s "$ENCRYPTED_SECRET" ] && [ -f "$AGE_KEY_PATH" ]; then
+  SA_TMP="$(decrypt_service_account "$ENCRYPTED_SECRET" "$AGE_KEY_PATH")"
+  SERVICE_ACCOUNT_FILE="$SA_TMP"
+fi
+
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
+  validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
   install_service_account_atomic "$SERVICE_ACCOUNT_FILE"
   enable_systemd_credential
   log "Credencial Firebase instalada (0600 root:root + systemd). Asigna el ID de la sede en el panel."
+elif [ "$REQUIRE_CREDENTIAL" -eq 1 ]; then
+  die "No hay credencial: falta el secreto cifrado o la llave age"
 else
   disable_systemd_credential || true
   warn "Sin credencial: la sede queda en modo local-only."

@@ -7,6 +7,7 @@
 #   sudo bash site-update.sh [--repo URL] [--ref main|v1.2.3] [--check-only] [--force] [--yes]
 #       [--project clinum-2]
 #       [--service-account-file /root/clinum-sa.json | --service-account-stdin]
+#       [--age-key-file /root/clinum-age.key] [--encrypted-secret RUTA]
 #   sudo bash site-update.sh --local [--yes]
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$DEFAULT_REPO"; REF="$DEFAULT_REF"; WORKDIR="/tmp"
 ASSUME_YES=0; LOCAL_MODE=0; CHECK_ONLY=0; FORCE=0
 PROJECT_ID="clinum-2"; SERVICE_ACCOUNT_FILE=""; SERVICE_ACCOUNT_STDIN=0
+AGE_KEY_FILE=""; ENCRYPTED_SECRET=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -25,6 +27,8 @@ while [ $# -gt 0 ]; do
     --project) PROJECT_ID="${2:?}"; shift 2 ;;
     --service-account-file) SERVICE_ACCOUNT_FILE="${2:?}"; shift 2 ;;
     --service-account-stdin) SERVICE_ACCOUNT_STDIN=1; shift ;;
+    --age-key-file) AGE_KEY_FILE="${2:?}"; shift 2 ;;
+    --encrypted-secret) ENCRYPTED_SECRET="${2:?}"; shift 2 ;;
     --check-only) CHECK_ONLY=1; shift ;;
     --force) FORCE=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
@@ -126,7 +130,17 @@ chown root:clinum "$ENVFILE"; chmod 0660 "$ENVFILE"
 if getent passwd soporte >/dev/null; then
   adduser soporte clinum >/dev/null 2>&1 || true
 fi
+if [ -n "$AGE_KEY_FILE" ]; then install_age_key "$AGE_KEY_FILE"; fi
+if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -z "$ENCRYPTED_SECRET" ]; then
+  ENCRYPTED_SECRET="$APP_DIR/secrets/firebase-service-account.json.age"
+fi
+if [ -z "$SERVICE_ACCOUNT_FILE" ] && [ -s "$ENCRYPTED_SECRET" ] && [ -f "$AGE_KEY_PATH" ]; then
+  SA_TMP="$(decrypt_service_account "$ENCRYPTED_SECRET" "$AGE_KEY_PATH")"
+  SERVICE_ACCOUNT_FILE="$SA_TMP"
+fi
+
 if [ -n "$SERVICE_ACCOUNT_FILE" ]; then
+  validate_service_account "$SERVICE_ACCOUNT_FILE" "$PROJECT_ID"
   install_service_account_atomic "$SERVICE_ACCOUNT_FILE"
   enable_systemd_credential
   EXISTING_LOCATION="$(grep -E '^LOCATION_ID=' "$ENVFILE" 2>/dev/null | cut -d= -f2 | tail -n1 || true)"

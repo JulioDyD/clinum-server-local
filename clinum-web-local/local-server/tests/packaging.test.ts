@@ -44,6 +44,28 @@ test("site assignment is GUI-only (no --location-id in install/update)", () => {
   assert.match(readPackaging("lib.sh"), /verify_credential\(\)/);
 });
 
+test("encrypted credentials and age flow are wired", () => {
+  const lib = readPackaging("lib.sh");
+  assert.match(lib, /install_age_key\(\)/);
+  assert.match(lib, /decrypt_service_account\(\)/);
+  assert.match(lib, /AGE_KEY_PATH/);
+
+  const encrypt = readPackaging("encrypt-secret.sh");
+  assert.match(encrypt, /age -r/);
+  assert.match(encrypt, /age-keygen/);
+
+  for (const script of ["site-install.sh", "site-update.sh"]) {
+    const text = readPackaging(script);
+    assert.match(text, /--age-key-file/);
+    assert.match(text, /--encrypted-secret/);
+    assert.match(text, /decrypt_service_account/);
+  }
+
+  assert.doesNotMatch(readPackaging("build-deb.sh"), /secrets/);
+  const gitignore = readFileSync(resolve("..", "..", ".gitignore"), "utf8");
+  assert.match(gitignore, /secrets\/\*\.json/);
+});
+
 test("Firebase credentials are provisioned atomically and injected by systemd", () => {
   const lib = readPackaging("lib.sh");
   assert.match(lib, /validate_service_account\(\)/);

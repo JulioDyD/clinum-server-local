@@ -96,8 +96,32 @@ fetch_app_source() {
 
 # ── Credencial Firebase (integracion con el servidor web) ────────────────────
 SERVICE_ACCOUNT_PATH="/etc/clinum-web-local/service-account.json"
+AGE_KEY_PATH="/etc/clinum-web-local/age.key"
 SYSTEMD_DROPIN_DIR="/etc/systemd/system/clinum-web-local.service.d"
 SYSTEMD_DROPIN_FILE="$SYSTEMD_DROPIN_DIR/10-credential.conf"
+
+# Instala la llave privada age compartida (0600 root).
+install_age_key() {
+  local src="$1"
+  [ -s "$src" ] || die "Llave age vacia o inexistente: $src"
+  grep -q '^AGE-SECRET-KEY-1' "$src" || die "El archivo no parece una llave age (AGE-SECRET-KEY-1)"
+  install -o root -g root -m 0600 "$src" "$AGE_KEY_PATH"
+}
+
+# Descifra la credencial y devuelve la ruta de un temporal 0600.
+decrypt_service_account() {
+  local encrypted="$1" key="${2:-$AGE_KEY_PATH}" tmp
+  [ -s "$encrypted" ] || die "No existe el secreto cifrado: $encrypted"
+  [ -s "$key" ] || die "No existe la llave age: $key"
+  command -v age >/dev/null 2>&1 || die "age no esta instalado"
+  tmp="$(mktemp)"
+  chmod 0600 "$tmp"
+  if ! age -d -i "$key" -o "$tmp" "$encrypted" 2>/dev/null; then
+    rm -f "$tmp"
+    die "No se pudo descifrar la credencial con age"
+  fi
+  printf '%s\n' "$tmp"
+}
 
 # Valida el JSON sin imprimir su contenido.
 validate_service_account() {
@@ -255,7 +279,8 @@ ensure_build_deps() {
   done
   if [ -n "$cxx0" ] && command -v gcc >/dev/null 2>&1 && command -v make >/dev/null 2>&1 \
      && command -v python3 >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1 \
-     && command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+     && command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1 \
+     && command -v age >/dev/null 2>&1; then
     export CXX="$cxx0"
     log "Build deps OK (apt skipped). CXX: $CXX"
     return 0
@@ -264,7 +289,7 @@ ensure_build_deps() {
   # Do not abort on third-party repos with old GPG (typical Chrome on Mint);
   # needed packages come from Ubuntu/Mint base.
   apt-get update -qq || true
-  apt-get install -y build-essential python3 make dpkg-dev curl git adduser systemd ca-certificates xz-utils || \
+  apt-get install -y build-essential python3 make dpkg-dev curl git adduser systemd ca-certificates xz-utils age || \
     die "apt deps failed. Check network and 'sudo apt update'."
   # better-sqlite3 v12 requires C++20 => g++ >= 11
   local cxx=""
@@ -322,9 +347,12 @@ backup_site() {
   [ -f "$ENVFILE" ] && install -o root -g root -m 0600 "$ENVFILE" "$dest/.env"
   # TLS private keys/certs live in /etc (never in the .deb): back them up too.
   if [ -d "$ETCDIR/tls" ]; then cp -a "$ETCDIR/tls" "$dest/tls" 2>/dev/null || true; fi
-  # Credencial de Firebase: solo root puede leerla.
+  # Credencial de Firebase y llave age: solo root puede leerlas.
   if [ -f "$SERVICE_ACCOUNT_PATH" ]; then
     install -o root -g root -m 0600 "$SERVICE_ACCOUNT_PATH" "$dest/service-account.json"
+  fi
+  if [ -f "$AGE_KEY_PATH" ]; then
+    install -o root -g root -m 0600 "$AGE_KEY_PATH" "$dest/age.key"
   fi
   if [ -d "$VARDIR" ]; then cp -a "$VARDIR" "$dest/var-lib" 2>/dev/null || true; fi
   installed_version > "$dest/VERSION" 2>/dev/null || echo "none" > "$dest/VERSION"

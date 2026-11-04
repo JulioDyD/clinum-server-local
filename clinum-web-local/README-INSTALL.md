@@ -125,20 +125,33 @@ SERIAL_PORT=/dev/ttyUSB1
 
 ## Credencial Firebase (integracion con clinum-2.web.app)
 
-La credencial **no** se guarda en git ni en el `.deb`. Se entrega una vez por sede.
+La credencial se guarda **cifrada** en git. La llave privada age es compartida y
+se entrega una vez por sede.
 
-### Sede nueva con credencial (la sede se asigna en el panel)
+### Generar la credencial cifrada (Linux/WSL)
+```bash
+bash packaging/encrypt-secret.sh \
+  --service-account /root/clinum-sa.json \
+  --init --key-out /root/clinum-age.key
+```
+- Genera `/root/clinum-age.key` (`0600`) y la clave publica.
+- Cifra en `secrets/firebase-service-account.json.age`.
+- Commitea solo el `.age`.
+- Entrega `/root/clinum-age.key` a cada sede (`0600`).
+
+### Sede nueva con credencial cifrada
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh \
   --ref vX.Y.Z \
   --project clinum-2 \
-  --service-account-file /root/clinum-sa.json \
+  --age-key-file /root/clinum-age.key \
   --require-credential \
   --serial /dev/ttyACM0 --http-port 8081 --yes
 ```
-- `/root/clinum-sa.json` es la clave de servicio del proyecto `clinum-2`
-  (Firebase Console -> Configuracion del proyecto -> Cuentas de servicio).
-- Se instala en `/etc/clinum-web-local/service-account.json` con `0600 root:root`.
+- Instala la llave age en `/etc/clinum-web-local/age.key` (`0600 root`).
+- Descifra `secrets/firebase-service-account.json.age` del repo.
+- Instala la credencial en `/etc/clinum-web-local/service-account.json` con
+  `0600 root:root`.
 - systemd la inyecta en `/run/credentials/clinum-web-local.service/firebase`.
 - El `.env` queda con `LOCAL_ONLY=1`, `LOCATION_ID` vacio y `FIREBASE_PROJECT_ID`.
 - El sync queda desactivado hasta asignar el ID en **Integracion**.
@@ -157,19 +170,23 @@ sigue en local-only.
 
 ### Actualizar una sede
 ```bash
-# Conservando la credencial existente
-sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
+# Primera actualizacion a v1.5.0: instala la llave compartida
+sudo bash clinum-web-local/local-server/packaging/site-update.sh \
+  --ref v1.5.0 --age-key-file /root/clinum-age.key --yes
 
-# Rotando la credencial
-sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z \
-  --service-account-file /root/clinum-sa-nueva.json --yes
+# Siguientes actualizaciones
+sudo bash clinum-web-local/local-server/packaging/site-update.sh --ref vX.Y.Z --yes
 ```
-- Sin `--service-account-file`: se conserva la credencial actual.
-- Con archivo nuevo: se valida, se reemplaza atomicamente y se guarda `.bak`.
-- Si la verificacion falla, se restaura la credencial y el `.env` anteriores.
+- Si el `.age` del repo cambia, se descifra y actualiza la credencial.
+- Sin `.age`/llave, conserva la credencial existente.
+- Conserva `LOCATION_ID` y el estado de sync.
 
 ### Actualizar sin clonar (desde v1.4.1)
 ```bash
+# Primera actualizacion a v1.5.0 (instala la llave)
+sudo clinum-update --ref v1.5.0 --age-key-file /root/clinum-age.key --yes
+
+# Siguientes
 sudo clinum-update --ref vX.Y.Z --yes
 ```
 o
@@ -178,45 +195,54 @@ sudo bash /opt/clinum-web-local/packaging/site-update.sh --ref vX.Y.Z --yes
 ```
 - El updater queda instalado en `/opt/clinum-web-local/packaging/`.
 - No uses `--local` desde `/opt`; el flujo oficial es con `--ref`.
-- La primera actualización a v1.4.1 todavía requiere el clon temporal
-  (la sede viene de v1.4.0).
-- Después ya no hace falta clonar.
 
-### Entrega por stdin (sin archivo temporal visible)
+### Entrega manual (respaldo)
 ```bash
 sudo bash clinum-web-local/local-server/packaging/site-install.sh --ref vX.Y.Z \
-  --project clinum-2 --service-account-stdin --require-credential \
-  --yes < /root/clinum-sa.json
+  --project clinum-2 --service-account-file /root/clinum-sa.json \
+  --require-credential --yes
 ```
+- Alternativa si no se usa el `.age`.
+- Tambien existe `--service-account-stdin` con `--yes < /root/clinum-sa.json`.
 
 ### Proteccion
-- JSON `0600 root:root`.
-- `systemd LoadCredential` lo entrega al servicio desde un tmpfs privado.
+- `secrets/firebase-service-account.json.age` cifrado en git; sin la llave age no se puede leer.
+- Llave age en `/etc/clinum-web-local/age.key` con `0600 root`; no se commitea.
+- Credencial descifrada en `/etc/clinum-web-local/service-account.json` con `0600 root:root`.
+- `systemd LoadCredential` la entrega al servicio desde un tmpfs privado.
 - El grupo `clinum`/`soporte` no puede leer el JSON.
 - El panel solo muestra si existe; no permite subirlo.
-- Nunca subir el JSON a git, correo o USB sin cifrar.
+- Nunca subir el JSON plano a git, correo o USB sin cifrar.
 
 ### Rotacion manual
 1. Generar nueva clave en Firebase Console.
-2. `site-update.sh --service-account-file /root/nueva.json --yes`.
-3. Verificar `/integration-settings` y `journalctl`.
-4. Revocar la clave anterior.
+2. Re-cifrar con la misma clave publica:
+   ```bash
+   bash packaging/encrypt-secret.sh \
+     --service-account /root/clinum-sa-nueva.json \
+     --public-key <CLAVE_PUBLICA>
+   ```
+3. Commit del nuevo `.age`.
+4. `clinum-update --ref vX.Y.Z --yes`.
+5. Verificar y revocar la clave anterior.
 
 ### Backup
-- El update guarda `.env`, DB, TLS y `service-account.json` en
+- El update guarda `.env`, DB, TLS, `service-account.json` y `age.key` en
   `/var/backups/clinum-web-local/backup-<fecha>/` con `0600`.
-- Mantener una copia segura fuera del servidor.
+- Mantener una copia segura de `age.key` fuera del servidor.
 
 ### Verificacion
 ```bash
 curl -s http://localhost:8081/integration-settings
 journalctl -u clinum-web-local -f
 ```
-Debe mostrar `hasServiceAccount: true`, `localOnly: false` y `lastError: null`.
+Debe mostrar `hasServiceAccount: true` y `lastError: null`. `localOnly` sera
+`false` solo cuando la sede ya este asignada y el sync activado.
 
 ### Si no hay credencial
 La sede queda en `LOCAL_ONLY=1` y funciona sin sync. Se puede provisionar
-despues con `site-update.sh --service-account-file ...`.
+despues con `--age-key-file` + el `.age` del repo, o manualmente con
+`--service-account-file`.
 
 ## Compatibilidad
 
