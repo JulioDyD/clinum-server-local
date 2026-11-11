@@ -1,11 +1,11 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { config } from "./config.js";
-import { isSpecialCallType } from "./types.js";
+import { isSpecialCallType, SPECIAL_CALL_TYPES } from "./types.js";
 import { isTactileFirmware } from "./deviceTypes.js";
 import { SqliteStore } from "./store/sqliteStore.js";
 import { RealtimeHub } from "./ws/realtimeHub.js";
@@ -24,6 +24,27 @@ const isPlayableSound = (file) => {
         return false;
     }
 };
+const SOUND_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".m4a"]);
+/** Lista los audios disponibles en la sede para publicarlos en site_sync. */
+function listSoundFiles() {
+    try {
+        return readdirSync(SOUNDS_DIR, { withFileTypes: true })
+            .filter(entry => entry.isFile() && SOUND_EXTENSIONS.has(extname(entry.name).toLowerCase()))
+            .filter(entry => {
+            try {
+                return statSync(join(SOUNDS_DIR, entry.name)).size > 0;
+            }
+            catch {
+                return false;
+            }
+        })
+            .map(entry => entry.name)
+            .sort((a, b) => a.localeCompare(b));
+    }
+    catch {
+        return [];
+    }
+}
 const _integration0 = getIntegrationSettings();
 FirebaseBridge.initAdmin(config.firebaseProjectId, !config.localOnly, _integration0.serviceAccountPath);
 // HTTPS with site CA when TLS_ENABLED=1 and key/cert exist.
@@ -44,6 +65,19 @@ const tlsActive = Boolean(tlsOptions);
 const app = (tlsOptions ? Fastify({ logger: true, https: tlsOptions }) : Fastify({ logger: true }));
 const store = new SqliteStore(config.localDbFile);
 const firebase = new FirebaseBridge(config.firebaseProjectId, !config.localOnly, config.locationId, _integration0.serviceAccountPath);
+if (config.outboxEnabled) {
+    firebase.setOutboxHandler((kind, docId, payload, deleteFields) => {
+        store.enqueueCloudWrite(kind, docId, payload, deleteFields);
+    });
+}
+let stopSiteSettingsWatch = () => undefined;
+let stopPatientsWatch = () => undefined;
+let stopSiteCommandsWatch = () => undefined;
+let presencePublishTimer = null;
+let sectionPublishTimer = null;
+const dirtySiteSections = new Set();
+let lastPresencePublishAt = 0;
+let outboxFlushInFlight = false;
 // Socket.IO se adjunta al servidor HTTP de Fastify directamente
 const hub = new RealtimeHub(app.server, (socket) => {
     // Envía estado actual al cliente recién conectado
@@ -79,7 +113,7 @@ function presenceSensorState(sensor, now = Date.now()) {
     return {
         deviceId: sensor.deviceId,
         role: sensor.role,
-        areaName: sensor.areaName || sensor.deviceId,
+        areaName: store.getDevice(sensor.deviceId)?.name || sensor.areaName || sensor.deviceId,
         state: occupied ? (stale ? "unknown" : "occupied") : (stale || !runtime ? "unknown" : "free"),
         sessionId: open?.id,
         enteredAtMs: open?.enteredAtMs,
@@ -92,6 +126,8 @@ function publishPresenceState(deviceId) {
     if (!sensor)
         return;
     hub.publishPresenceState(presenceSensorState(sensor));
+    // Mantiene el espejo site_sync/presence al día para la pantalla web.
+    scheduleSiteSection("presence");
 }
 function closePresenceRuntimeSession(deviceId, exitedAtMs, reason) {
     const runtime = presenceRuntime.get(deviceId);
@@ -370,6 +406,42 @@ function syncLampState(lampId) {
     pendingLampStates.set(lampId, { frame, attempts: 1, lastSentAtMs: Date.now() });
     console.log(`[SYNC_LAMP] lampId=${lampId} state=${state} effectiveState=${frame.effectiveState} color=${frame.colorPreset} anim=${frame.animationPreset} sound=${frame.soundPreset} fromDB=${!!dbProfile}`);
 }
+/** Envía una prueba de perfil a una lámpara (ruta local y comando site_sync). */
+function performLampTest(lampId, stateRaw, durationMsRaw) {
+    const lamp = store.getLamp(lampId);
+    if (!lamp)
+        throw new Error("Lámpara no encontrada");
+    if (!gateway.isAvailable())
+        throw new Error("Gateway serial no conectado");
+    const validStates = ["normal", "emergency", "presence", "type3", "type4", "type5", "type6"];
+    const requestedState = validStates.includes(String(stateRaw ?? "")) ? String(stateRaw) : "normal";
+    const fallbackPresets = {
+        normal: { colorPreset: 10, animationPreset: 1, soundPreset: 1, audioEnabled: true },
+        emergency: { colorPreset: 0, animationPreset: 4, soundPreset: 4, audioEnabled: true },
+        presence: { colorPreset: 7, animationPreset: 1, soundPreset: 17, audioEnabled: true },
+        type3: { colorPreset: 4, animationPreset: 7, soundPreset: 7, audioEnabled: true },
+        type4: { colorPreset: 6, animationPreset: 10, soundPreset: 10, audioEnabled: true },
+        type5: { colorPreset: 8, animationPreset: 13, soundPreset: 13, audioEnabled: true },
+        type6: { colorPreset: 9, animationPreset: 16, soundPreset: 16, audioEnabled: true },
+    };
+    const dbProfile = store.getLampAlertProfile(requestedState);
+    const presets = dbProfile ?? fallbackPresets[requestedState] ?? fallbackPresets.normal;
+    const durationMs = Math.max(100, Math.min(30_000, Math.round(durationMsRaw ?? 3000)));
+    gateway.sendLampTest({
+        msgType: "lamp_test",
+        lampId: lamp.lampId,
+        commandSeq: nextRemoteCommandSeq(),
+        testState: requestedState === "emergency" ? 2 : 1,
+        durationMs,
+        colorPreset: presets.colorPreset,
+        animationPreset: presets.animationPreset,
+        soundPreset: presets.soundPreset,
+        audioEnabled: Boolean(lamp.audioEnabled && presets.audioEnabled),
+        brightness: lamp.brightness,
+        buzzerVolume: lamp.buzzerVolume,
+    });
+    console.log(`[TEST] lamp=${lamp.lampId} state=${requestedState} color=${presets.colorPreset} anim=${presets.animationPreset} sound=${presets.soundPreset} testState=${requestedState === "emergency" ? 2 : 1} fromDB=${!!dbProfile}`);
+}
 function retryPendingLampStates() {
     const now = Date.now();
     for (const [lampId, pending] of pendingLampStates) {
@@ -483,6 +555,436 @@ async function syncToCloud(work) {
         app.log.warn({ error }, "Cloud sync failed; local state remains persisted");
     }
 }
+function presenceIntervalMs() {
+    // Publicamos a ~2/3 de la ventana online: 90 s -> 60 s, 60 s -> 40 s.
+    return Math.max(30_000, Math.min(300_000, Math.floor((store.getOnlineWindowMs() * 2) / 3)));
+}
+async function publishPresenceNow() {
+    if (config.presenceMode === "legacy" || !firebase.isEnabled())
+        return;
+    const devices = store.getDevices()
+        .filter(device => device.online)
+        .map((device) => ({
+        deviceId: device.deviceId,
+        lastSeenMs: device.lastSeenMs,
+        online: device.online,
+    }));
+    await firebase.publishPresence(devices, store.getSiteSettings().onlineWindowS);
+    lastPresencePublishAt = Date.now();
+}
+function schedulePresencePublish(delayMs = 500, force = false) {
+    if (presencePublishTimer)
+        return;
+    const minInterval = presenceIntervalMs();
+    const elapsed = Date.now() - lastPresencePublishAt;
+    const wait = force ? delayMs : Math.max(delayMs, minInterval - elapsed);
+    presencePublishTimer = setTimeout(() => {
+        presencePublishTimer = null;
+        void publishPresenceNow();
+    }, Math.max(0, wait));
+    presencePublishTimer.unref?.();
+}
+function startSiteSettingsWatch() {
+    stopSiteSettingsWatch();
+    stopSiteSettingsWatch = firebase.subscribeSiteSettings((settings) => {
+        const current = store.getSiteSettings();
+        if (current.onlineWindowS === settings.onlineWindowS)
+            return;
+        store.updateSiteSettings(settings);
+        schedulePresencePublish(0, true);
+        scheduleSiteSection("settings");
+        app.log.info({ onlineWindowS: settings.onlineWindowS }, "Site online window updated from cloud");
+    });
+}
+function patientsReadOnly() {
+    return config.patientsSource === "web" && firebase.isEnabled();
+}
+function startPatientsWatch() {
+    stopPatientsWatch();
+    if (!patientsReadOnly())
+        return;
+    stopPatientsWatch = firebase.subscribePatients((patient, patientId) => {
+        if (!patient) {
+            const removed = store.deleteCloudPatient(patientId);
+            if (removed?.assignedDevice)
+                syncPatient(removed.assignedDevice);
+            hub.publishPatientList(store.getPatients());
+            return;
+        }
+        const { patient: saved, previousDevice } = store.upsertCloudPatient(patient);
+        if (previousDevice && previousDevice !== saved.assignedDevice)
+            syncPatient(previousDevice);
+        if (saved.assignedDevice)
+            syncPatient(saved.assignedDevice);
+        hub.publishPatientList(store.getPatients());
+    }, (cloudIds) => {
+        // Reconciliación inicial: retira del espejo local solo los patients source='cloud'.
+        const removed = store.deleteCloudPatientsNotIn(cloudIds);
+        for (const patient of removed) {
+            if (patient.assignedDevice)
+                syncPatient(patient.assignedDevice);
+        }
+        if (removed.length > 0) {
+            hub.publishPatientList(store.getPatients());
+            app.log.info({ removed: removed.length }, "Cloud patient mirror reconciled");
+        }
+    });
+}
+function buildSiteSection(section) {
+    if (section === "devices") {
+        return {
+            items: store.getDevices().map(device => ({
+                deviceId: device.deviceId,
+                name: device.name ?? "",
+                callerLocationType: device.callerLocationType,
+                online: device.online,
+                lastSeenMs: device.lastSeenMs,
+                firmwareVersion: device.firmwareVersion ?? "",
+                transport: device.transport ?? "",
+            })),
+        };
+    }
+    if (section === "lamps") {
+        return {
+            items: store.getLamps(),
+            callers: store.getDevices().map(device => ({
+                deviceId: device.deviceId,
+                name: device.name ?? "",
+                lampIds: store.getLampIdsForCaller(device.deviceId),
+            })),
+            alertProfiles: store.getLampAlertProfiles(),
+            specialProfiles: Object.fromEntries(SPECIAL_CALL_TYPES.map(callType => [callType, store.getLampIdsForSpecialProfile(callType)])),
+        };
+    }
+    if (section === "settings") {
+        const integrationSettings = getIntegrationSettings();
+        return {
+            site: store.getSiteSettings(),
+            location: store.getLocationSettings(),
+            presence: store.getPresenceSettings(),
+            integration: {
+                locationId: integrationSettings.locationId,
+                firebaseProjectId: integrationSettings.firebaseProjectId,
+                localOnly: !firebase.isEnabled(),
+                hasServiceAccount: integrationSettings.hasServiceAccount,
+                lastError: firebase.getLastError(),
+            },
+            sounds: listSoundFiles(),
+        };
+    }
+    if (section === "presence") {
+        const sensors = store.getPresenceSensors();
+        return { sensors, states: sensors.map(sensor => presenceSensorState(sensor)) };
+    }
+    return {};
+}
+async function publishSiteSectionNow(section) {
+    if (!firebase.isEnabled())
+        return;
+    try {
+        await firebase.publishSiteSection(section, buildSiteSection(section));
+    }
+    catch (error) {
+        app.log.warn({ error, section }, "Could not publish site section");
+    }
+}
+function scheduleSiteSection(section, delayMs = 800) {
+    if (!firebase.isEnabled())
+        return;
+    dirtySiteSections.add(section);
+    if (sectionPublishTimer)
+        return;
+    sectionPublishTimer = setTimeout(() => {
+        sectionPublishTimer = null;
+        const sections = Array.from(dirtySiteSections);
+        dirtySiteSections.clear();
+        for (const dirty of sections)
+            void publishSiteSectionNow(dirty);
+    }, delayMs);
+    sectionPublishTimer.unref?.();
+}
+async function publishAllSiteSections() {
+    for (const section of ["settings", "devices", "lamps", "presence"]) {
+        await publishSiteSectionNow(section);
+    }
+}
+function validateDeviceName(name) {
+    if (typeof name !== "string")
+        throw new Error("Nombre requerido");
+    const value = name.trim();
+    if (!value || Buffer.byteLength(value, "utf8") > 32 || /[,\r\n]/.test(value)) {
+        throw new Error("Nombre requerido, máximo 32 bytes UTF-8 y sin comas ni saltos de línea");
+    }
+    return value;
+}
+async function handleSiteCommand(type, payload) {
+    switch (type) {
+        case "device.rename": {
+            const deviceId = String(payload.deviceId ?? "");
+            const name = validateDeviceName(payload.name);
+            const device = store.updateDeviceName(deviceId, name);
+            if (!device)
+                throw new Error("Llamador no encontrado");
+            hub.publishDeviceList(store.getDevices());
+            queueDeviceName(deviceId, name);
+            scheduleSiteSection("devices");
+            scheduleSiteSection("presence");
+            return "Llamador renombrado";
+        }
+        case "device.update": {
+            const deviceId = String(payload.deviceId ?? "");
+            if (!store.getDevice(deviceId))
+                throw new Error("Llamador no encontrado");
+            let device = store.getDevice(deviceId);
+            if (payload.name !== undefined) {
+                const name = validateDeviceName(payload.name);
+                device = store.updateDeviceName(deviceId, name) ?? device;
+                queueDeviceName(deviceId, name);
+            }
+            if (payload.callerLocationType !== undefined) {
+                const value = String(payload.callerLocationType);
+                if (!["cama", "sillon", "bano"].includes(value))
+                    throw new Error("Tipo de ubicación inválido");
+                device = store.updateDeviceLocationType(deviceId, value) ?? device;
+            }
+            hub.publishDeviceList(store.getDevices());
+            scheduleSiteSection("devices");
+            scheduleSiteSection("presence");
+            return "Llamador actualizado";
+        }
+        case "device.setLocationType": {
+            const deviceId = String(payload.deviceId ?? "");
+            const value = String(payload.callerLocationType ?? "");
+            if (!["cama", "sillon", "bano"].includes(value))
+                throw new Error("Tipo de ubicación inválido");
+            const device = store.updateDeviceLocationType(deviceId, value);
+            if (!device)
+                throw new Error("Llamador no encontrado");
+            hub.publishDeviceList(store.getDevices());
+            scheduleSiteSection("devices");
+            return "Tipo de ubicación actualizado";
+        }
+        case "device.setLamps": {
+            const deviceId = String(payload.deviceId ?? "");
+            if (!store.getDevice(deviceId))
+                throw new Error("Llamador no encontrado");
+            const lampIds = Array.isArray(payload.lampIds) ? payload.lampIds.map(String) : [];
+            const previous = store.getLampIdsForCaller(deviceId);
+            const next = store.setLampAssignments(deviceId, lampIds);
+            for (const lampId of new Set([...previous, ...next]))
+                syncLampState(lampId);
+            hub.publishLampAssignments(deviceId, next);
+            scheduleSiteSection("lamps");
+            return "Asignación de lámparas actualizada";
+        }
+        case "lamp.update": {
+            const lampId = String(payload.lampId ?? "");
+            const lamp = store.updateLamp(lampId, {
+                ...(payload.name !== undefined ? { name: String(payload.name) } : {}),
+                ...(payload.audioEnabled !== undefined ? { audioEnabled: Boolean(payload.audioEnabled) } : {}),
+                ...(payload.brightness !== undefined ? { brightness: Number(payload.brightness) } : {}),
+                ...(payload.buzzerVolume !== undefined ? { buzzerVolume: Number(payload.buzzerVolume) } : {}),
+            });
+            if (!lamp)
+                throw new Error("Lámpara no encontrada");
+            hub.publishLampList(store.getLamps());
+            syncLampState(lamp.lampId);
+            scheduleSiteSection("lamps");
+            return "Lámpara actualizada";
+        }
+        case "lamp.setTransport": {
+            const lampId = String(payload.lampId ?? "");
+            const transport = payload.transport === "lora" ? "lora" : payload.transport === "espnow" ? "espnow" : null;
+            if (!transport)
+                throw new Error("Transporte inválido");
+            const lamp = store.getLamp(lampId);
+            if (!lamp)
+                throw new Error("Lámpara no encontrada");
+            if (!gateway.isAvailable())
+                throw new Error("Gateway serial no conectado");
+            if (transport === lamp.transport && !lamp.pendingTransport)
+                return "Sin cambios";
+            store.requestLampTransport(lampId, transport);
+            const command = { lampId, transport, attempts: 0, lastSentAtMs: 0 };
+            pendingTransportCommands.set(lampId, command);
+            sendPendingTransport(command);
+            hub.publishLampList(store.getLamps());
+            scheduleSiteSection("lamps");
+            return "Transporte solicitado";
+        }
+        case "lamp.test": {
+            const lampId = String(payload.lampId ?? "");
+            performLampTest(lampId, payload.state === undefined ? undefined : String(payload.state), payload.durationMs === undefined ? undefined : Number(payload.durationMs));
+            return "Prueba enviada";
+        }
+        case "lamp.delete": {
+            const lampId = String(payload.lampId ?? "");
+            if (!store.deleteLamp(lampId))
+                throw new Error("Lámpara no encontrada");
+            hub.publishLampList(store.getLamps());
+            scheduleSiteSection("lamps");
+            return "Lámpara eliminada";
+        }
+        case "alertProfile.update": {
+            const callType = String(payload.callType ?? "");
+            const profile = store.updateLampAlertProfile(callType, {
+                ...(payload.label !== undefined ? { label: String(payload.label) } : {}),
+                ...(payload.enabled !== undefined ? { enabled: Boolean(payload.enabled) } : {}),
+                ...(payload.colorPreset !== undefined ? { colorPreset: Number(payload.colorPreset) } : {}),
+                ...(payload.animationPreset !== undefined ? { animationPreset: Number(payload.animationPreset) } : {}),
+                ...(payload.soundPreset !== undefined ? { soundPreset: Number(payload.soundPreset) } : {}),
+                ...(payload.audioEnabled !== undefined ? { audioEnabled: Boolean(payload.audioEnabled) } : {}),
+                ...(payload.autoEndS !== undefined ? { autoEndS: Number(payload.autoEndS) } : {}),
+            });
+            if (!profile)
+                throw new Error("Perfil no encontrado");
+            for (const lamp of store.getLamps())
+                syncLampState(lamp.lampId);
+            scheduleSiteSection("lamps");
+            return "Perfil actualizado";
+        }
+        case "specialProfile.setLamps": {
+            const callType = String(payload.callType ?? "");
+            if (!isSpecialCallType(callType))
+                throw new Error("Tipo especial inválido");
+            const lampIds = Array.isArray(payload.lampIds) ? payload.lampIds.map(String) : [];
+            store.setLampAssignmentsForSpecialProfile(callType, lampIds);
+            syncSpecialProfileLamps();
+            scheduleSiteSection("lamps");
+            return "Lámparas del perfil especial actualizadas";
+        }
+        case "locationSettings.update": {
+            const body = { ...(payload ?? {}) };
+            if (body.alertSound !== undefined && !isPlayableSound(body.alertSound)) {
+                throw new Error("El sonido normal seleccionado no existe en la sede local");
+            }
+            if (body.emergencySound !== undefined && !isPlayableSound(body.emergencySound)) {
+                throw new Error("El sonido de emergencia seleccionado no existe en la sede local");
+            }
+            const settings = store.updateLocationSettings(body);
+            hub.publishLocationSettings(settings);
+            scheduleSiteSection("settings");
+            return "Pantalla de sala actualizada";
+        }
+        case "presenceSensor.set": {
+            const deviceId = String(payload.deviceId ?? "");
+            const device = store.getDevice(deviceId);
+            if (!device)
+                throw new Error("Llamador no encontrado");
+            const requestedRole = String(payload.role ?? "").trim();
+            if (!requestedRole) {
+                if (presenceRuntime.get(deviceId)?.sessionId)
+                    closePresenceRuntimeSession(deviceId, Date.now(), "sensor_removed");
+                presenceRuntime.delete(deviceId);
+                store.deletePresenceSensor(deviceId);
+                scheduleSiteSection("presence");
+                return "Presencia desactivada";
+            }
+            const role = requestedRole === "sillon" ? "sillon"
+                : (requestedRole === "cama" || requestedRole === "bed") ? "cama"
+                    : (requestedRole === "bathroom" || requestedRole === "bano") ? "bathroom"
+                        : null;
+            if (!role)
+                throw new Error("Rol de presencia inválido");
+            store.upsertPresenceSensor(deviceId, role, device.name || deviceId, payload.enabled !== false);
+            publishPresenceState(deviceId);
+            scheduleSiteSection("presence");
+            return "Presencia actualizada";
+        }
+        case "presenceSettings.update": {
+            const body = { ...(payload ?? {}) };
+            if (body.detectionSound !== undefined && !isPlayableSound(body.detectionSound)) {
+                throw new Error("El sonido de detección seleccionado no existe en la sede local");
+            }
+            const settings = store.updatePresenceSettings(body);
+            if (!settings.enabled) {
+                for (const [deviceId, runtime] of presenceRuntime) {
+                    if (runtime.sessionId)
+                        closePresenceRuntimeSession(deviceId, Date.now(), "disabled");
+                }
+            }
+            hub.publishPresenceSettings(settings);
+            scheduleSiteSection("settings");
+            scheduleSiteSection("presence");
+            return "Presencia actualizada";
+        }
+        case "siteSettings.update": {
+            const onlineWindowS = Number(payload.onlineWindowS);
+            if (!Number.isFinite(onlineWindowS) || onlineWindowS < 60 || onlineWindowS > 600) {
+                throw new Error("onlineWindowS debe estar entre 60 y 600 segundos");
+            }
+            store.updateSiteSettings({ onlineWindowS });
+            schedulePresencePublish(0, true);
+            scheduleSiteSection("settings");
+            return "Ventana online actualizada";
+        }
+        case "call.end": {
+            const deviceId = String(payload.deviceId ?? "");
+            const requestedType = payload.callType === undefined ? undefined : String(payload.callType);
+            const callType = requestedType === "normal" || requestedType === "emergency" || (requestedType && isSpecialCallType(requestedType))
+                ? requestedType
+                : undefined;
+            if (!deviceId)
+                throw new Error("Llamador requerido");
+            if (!finalizeActiveCall(deviceId, callType))
+                throw new Error("No hay llamado activo para finalizar");
+            return "Llamado finalizado";
+        }
+        default:
+            throw new Error(`Comando no soportado: ${type}`);
+    }
+}
+async function applySiteCommand(commandId, type, payload) {
+    try {
+        const result = await handleSiteCommand(type, payload);
+        await firebase.markSiteCommand(commandId, "applied", result);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        app.log.warn({ commandId, type, error: message }, "Site command rejected");
+        await firebase.markSiteCommand(commandId, "rejected", message);
+    }
+}
+function startSiteCommandsWatch() {
+    stopSiteCommandsWatch();
+    stopSiteCommandsWatch = firebase.subscribeSiteCommands((commandId, type, payload) => {
+        void applySiteCommand(commandId, type, payload);
+    });
+}
+async function saveHistoryToCloud(record) {
+    if (config.historyWriter !== "local" || !firebase.isEnabled())
+        return;
+    // Los especiales no se mezclan con care_history: tendrán su propio historial.
+    if (isSpecialCallType(record.call_type))
+        return;
+    const device = store.getDevice(record.deviceId);
+    const settings = store.getLocationSettings();
+    await firebase.saveCallHistory(record, {
+        deviceName: device?.name,
+        locationName: settings.name,
+        attentionTimeMin: settings.attentionTimeMin,
+    });
+}
+async function flushCloudOutbox() {
+    if (!config.outboxEnabled || !firebase.isEnabled() || outboxFlushInFlight)
+        return;
+    outboxFlushInFlight = true;
+    try {
+        const items = store.getDueCloudWrites(25);
+        for (const item of items) {
+            try {
+                await firebase.writeQueued(item.kind, item.docId, item.payload, item.deleteFields);
+                store.markCloudWriteDone(item.id);
+            }
+            catch {
+                store.markCloudWriteFailed(item.id, item.attempts + 1);
+            }
+        }
+    }
+    finally {
+        outboxFlushInFlight = false;
+    }
+}
 // Device IDs de llamadores son 12 hex chars del MAC efuse. Un ID corto
 // (p.ej. C81A32D18) es un fantasma: el mismo MAC con los primeros bytes
 // perdidos. Normalizar contra devices conocidos por MAC o por sufijo.
@@ -533,9 +1035,12 @@ async function handleFrame(frame) {
     // para no registrarla tambien como llamador fantasma en la tabla de dispositivos.
     if (!frame.msgType.startsWith("lamp_") && frame.deviceId && store.getLamp(frame.deviceId)) {
         if (frame.msgType === "heartbeat" && (frame.source === "lora" || frame.source === "espnow")) {
+            const previousLamp = store.getLamp(frame.deviceId);
             const touchedLamp = store.touchLamp(frame.deviceId, frame.srcMac, undefined, undefined, frame.source);
             if (!touchedLamp.pendingTransport)
                 pendingTransportCommands.delete(frame.deviceId);
+            if (previousLamp && previousLamp.online !== touchedLamp.online)
+                scheduleSiteSection("lamps");
             hub.publishLampList(store.getLamps());
         }
         return;
@@ -557,6 +1062,7 @@ async function handleFrame(frame) {
                 result: existingLamp ? "duplicate" : "ok",
             });
             syncLampState(lampId);
+            scheduleSiteSection("lamps");
         }
         else if (frame.msgType === "lamp_heartbeat" || frame.msgType === "lamp_state_ack" || frame.msgType === "lamp_test_ack") {
             const existingLamp = store.getLamp(lampId);
@@ -571,6 +1077,8 @@ async function handleFrame(frame) {
             const touchedLamp = store.touchLamp(lampId, frame.srcMac, frame.appliedRevision ?? frame.stateRevision, appliedState, observedTransport);
             if (!touchedLamp.pendingTransport)
                 pendingTransportCommands.delete(lampId);
+            if (existingLamp.online !== touchedLamp.online)
+                scheduleSiteSection("lamps");
             if (frame.msgType === "lamp_heartbeat") {
                 gateway.sendLampSessionAck({ msgType: "lamp_session_ack", lampId, seq: frame.seq, result: "ok" });
             }
@@ -623,6 +1131,7 @@ async function handleFrame(frame) {
                 device = renamed;
                 hub.publishDeviceList(store.getDevices());
                 void syncToCloud(async () => { await firebase.upsertDevice(renamed); });
+                schedulePresencePublish();
             }
         }
         else if (device.name && device.name !== reportedName) {
@@ -646,21 +1155,22 @@ async function handleFrame(frame) {
             gateway.sendAck(resumeAck);
             void syncToCloud(async () => {
                 await firebase.upsertDevice(device);
-                await firebase.mirrorPresence(frame.deviceId);
             });
+            schedulePresencePublish(0, true);
         }
         else {
             ack("ok", frame);
             void syncToCloud(async () => {
                 await firebase.upsertDevice(device);
-                await firebase.mirrorPresence(frame.deviceId);
             });
+            schedulePresencePublish(0, true);
             hub.publishDeviceList(store.getDevices());
         }
         if (!existingDevice)
             hub.publishDeviceRegistered(device);
         if (store.getPatientByDevice(frame.deviceId) || isTactileFirmware(device.firmwareVersion))
             syncPatient(frame.deviceId);
+        scheduleSiteSection("devices");
         return;
     }
     if (frame.msgType === "config_ack") {
@@ -728,8 +1238,9 @@ async function handleFrame(frame) {
             syncSpecialProfileLamps();
             void syncToCloud(async () => {
                 await firebase.upsertCalled(next);
-                await firebase.upsertDevice(device);
+                await firebase.updateDeviceIfChanged(device, { lastCallAtMs: next.startedAtMs });
             });
+            schedulePresencePublish();
             return;
         }
         case "call_end": {
@@ -767,16 +1278,17 @@ async function handleFrame(frame) {
                     void syncToCloud(async () => {
                         await firebase.upsertCalled(special.state);
                         if (special.historyRecord)
-                            await firebase.saveCallHistory(special.historyRecord);
+                            await saveHistoryToCloud(special.historyRecord);
                     });
                 }
             }
             void syncToCloud(async () => {
                 await firebase.upsertCalled(next);
-                await firebase.upsertDevice(device);
+                await firebase.updateDeviceIfChanged(device);
                 if (historyRecord)
-                    await firebase.saveCallHistory(historyRecord);
+                    await saveHistoryToCloud(historyRecord);
             });
+            schedulePresencePublish();
             return;
         }
         case "heartbeat": {
@@ -811,9 +1323,10 @@ async function handleFrame(frame) {
                 callStartSeq: callState?.active ? callState.startSeq : 0,
             };
             gateway.sendAck(heartbeatAck);
+            // Los heartbeats actualizan lastSeen en SQLite, pero ya no escriben en
+            // Firestore: la presencia agregada por sede se publica periódicamente.
             void syncToCloud(async () => {
-                await firebase.upsertDevice(device);
-                await firebase.mirrorPresence(frame.deviceId);
+                await firebase.updateDeviceIfChanged(device);
             });
             return;
         }
@@ -861,6 +1374,14 @@ app.get("/health", async () => ({
     ok: true,
     ts: Date.now(),
     firebaseEnabled: firebase.isEnabled(),
+    firebaseCounters: firebase.getCounters(),
+    outbox: store.getCloudOutboxStats(),
+    presenceMode: config.presenceMode,
+    historyWriter: config.historyWriter,
+    outboxEnabled: config.outboxEnabled,
+    patientsSource: config.patientsSource,
+    patientsReadOnly: patientsReadOnly(),
+    onlineWindowS: store.getSiteSettings().onlineWindowS,
     tls: tlsActive,
     serialPort: config.serialPort,
     version: systemVersion.version,
@@ -868,10 +1389,15 @@ app.get("/health", async () => ({
     uptimeSeconds: uptimeSeconds(),
 }));
 app.get("/network/diagnostics", async () => ({ counters: store.getReliabilityCounters(),
-    pendingCommands: store.getPendingCommands(), pendingPatients: pendingPatients.size, serialAvailable: gateway.isAvailable(), gateway: gatewayControlState }));
+    pendingCommands: store.getPendingCommands(), pendingPatients: pendingPatients.size, serialAvailable: gateway.isAvailable(), gateway: gatewayControlState,
+    outbox: store.getCloudOutboxStats(), firebaseCounters: firebase.getCounters() }));
 app.delete("/network/pending-commands", async () => {
     const cleared = store.clearPendingCommands();
     pendingEndCommands.clear();
+    return { ok: true, cleared };
+});
+app.delete("/network/outbox", async () => {
+    const cleared = store.clearCloudOutbox();
     return { ok: true, cleared };
 });
 app.get("/gateway/status", async () => gatewayControlState);
@@ -903,6 +1429,17 @@ app.get("/devices", async () => ({ items: store.getDevices() }));
 app.get("/lamps", async () => ({ items: store.getLamps() }));
 app.get("/lamp-alert-profiles", async () => ({ items: store.getLampAlertProfiles() }));
 app.get("/location-settings", async () => store.getLocationSettings());
+app.get("/site-settings", async () => store.getSiteSettings());
+app.patch("/site-settings", async (req, reply) => {
+    const requested = Number(req.body?.onlineWindowS);
+    if (!Number.isFinite(requested) || requested < 60 || requested > 600) {
+        return reply.status(400).send({ error: "onlineWindowS debe estar entre 60 y 600 segundos" });
+    }
+    const settings = store.updateSiteSettings({ onlineWindowS: requested });
+    schedulePresencePublish(0, true);
+    scheduleSiteSection("settings");
+    return settings;
+});
 app.patch("/location-settings", async (req) => {
     const body = { ...(req.body ?? {}) };
     if (body.alertSound !== undefined && !isPlayableSound(body.alertSound))
@@ -911,6 +1448,7 @@ app.patch("/location-settings", async (req) => {
         delete body.emergencySound;
     const settings = store.updateLocationSettings(body);
     hub.publishLocationSettings(settings);
+    scheduleSiteSection("settings");
     return settings;
 });
 app.get("/integration-settings", async () => ({ ...getIntegrationSettings(), localOnly: !firebase.isEnabled(), lastError: firebase.getLastError() }));
@@ -929,6 +1467,12 @@ app.patch("/integration-settings", async (req, reply) => {
         // Cambiar de proyecto Firebase sí (el SDK de Admin ya quedó atado al proyecto inicial).
         firebase.setLocationId(settings.locationId);
         firebase.setEnabled(!settings.localOnly);
+        // Reinicia la escucha de site_settings y publica presencia con la nueva sede.
+        startSiteSettingsWatch();
+        startPatientsWatch();
+        startSiteCommandsWatch();
+        schedulePresencePublish(0, true);
+        void publishAllSiteSections();
         const projectChanged = settings.firebaseProjectId !== config.firebaseProjectId;
         return { ...settings, localOnly: !firebase.isEnabled(), restartRequired: projectChanged, lastError: firebase.getLastError() };
     }
@@ -942,6 +1486,7 @@ app.patch("/lamp-alert-profiles/:callType", async (req, reply) => {
         return reply.status(404).send({ error: "Alert profile not found" });
     for (const lamp of store.getLamps())
         syncLampState(lamp.lampId);
+    scheduleSiteSection("lamps");
     return profile;
 });
 // ── Lámparas designadas por perfil de llamado especial ──────────────────────
@@ -956,6 +1501,7 @@ app.put("/lamp-alert-profiles/:callType/lamps", async (req, reply) => {
     const lampIds = Array.isArray(req.body?.lampIds) ? req.body.lampIds : [];
     store.setLampAssignmentsForSpecialProfile(req.params.callType, lampIds);
     syncSpecialProfileLamps();
+    scheduleSiteSection("lamps");
     return { ok: true, items: store.getLampIdsForSpecialProfile(req.params.callType) };
 });
 app.patch("/lamps/:id", async (req, reply) => {
@@ -964,6 +1510,7 @@ app.patch("/lamps/:id", async (req, reply) => {
         return reply.status(404).send({ error: "Lamp not found" });
     hub.publishLampList(store.getLamps());
     syncLampState(lamp.lampId);
+    scheduleSiteSection("lamps");
     return lamp;
 });
 app.patch("/lamps/:id/transport", async (req, reply) => {
@@ -984,6 +1531,7 @@ app.patch("/lamps/:id/transport", async (req, reply) => {
     pendingTransportCommands.set(lamp.lampId, command);
     sendPendingTransport(command);
     hub.publishLampList(store.getLamps());
+    scheduleSiteSection("lamps");
     console.log(`[TRANSPORT] lamp=${lamp.lampId} requested=${transport} active=${lamp.transport}`);
     return reply.status(202).send({ ok: true, lamp: updated, message: "Waiting for lamp registration on selected transport" });
 });
@@ -991,44 +1539,19 @@ app.delete("/lamps/:id", async (req, reply) => {
     if (!store.deleteLamp(req.params.id))
         return reply.status(404).send({ error: "Lamp not found" });
     hub.publishLampList(store.getLamps());
+    scheduleSiteSection("lamps");
     return { ok: true };
 });
 app.post("/lamps/:id/test", async (req, reply) => {
-    const lamp = store.getLamp(req.params.id);
-    if (!lamp)
-        return reply.status(404).send({ error: "Lamp not found" });
-    const raw = req.body?.state;
-    const validStates = ["normal", "emergency", "presence", "type3", "type4", "type5", "type6"];
-    const requestedState = validStates.includes(raw) ? raw : "normal";
-    const fallbackPresets = {
-        normal: { colorPreset: 10, animationPreset: 1, soundPreset: 1, audioEnabled: true },
-        emergency: { colorPreset: 0, animationPreset: 4, soundPreset: 4, audioEnabled: true },
-        presence: { colorPreset: 7, animationPreset: 1, soundPreset: 17, audioEnabled: true },
-        type3: { colorPreset: 4, animationPreset: 7, soundPreset: 7, audioEnabled: true },
-        type4: { colorPreset: 6, animationPreset: 10, soundPreset: 10, audioEnabled: true },
-        type5: { colorPreset: 8, animationPreset: 13, soundPreset: 13, audioEnabled: true },
-        type6: { colorPreset: 9, animationPreset: 16, soundPreset: 16, audioEnabled: true },
-    };
-    const dbProfile = store.getLampAlertProfile(requestedState);
-    if (!dbProfile) {
-        console.warn(`[WARN] Perfil '${requestedState}' no encontrado en BD, usando defaults de fallback`);
+    try {
+        performLampTest(req.params.id, req.body?.state, req.body?.durationMs);
+        return { ok: true };
     }
-    const presets = dbProfile ?? fallbackPresets[requestedState] ?? fallbackPresets.normal;
-    gateway.sendLampTest({
-        msgType: "lamp_test",
-        lampId: lamp.lampId,
-        commandSeq: nextRemoteCommandSeq(),
-        testState: requestedState === "emergency" ? 2 : 1,
-        durationMs: Math.max(100, Math.min(30_000, Math.round(req.body?.durationMs ?? 3000))),
-        colorPreset: presets.colorPreset,
-        animationPreset: presets.animationPreset,
-        soundPreset: presets.soundPreset,
-        audioEnabled: Boolean(lamp.audioEnabled && presets.audioEnabled),
-        brightness: lamp.brightness,
-        buzzerVolume: lamp.buzzerVolume,
-    });
-    console.log(`[TEST] lamp=${lamp.lampId} state=${requestedState} color=${presets.colorPreset} anim=${presets.animationPreset} sound=${presets.soundPreset} testState=${requestedState === "emergency" ? 2 : 1} fromDB=${!!dbProfile}`);
-    return { ok: true };
+    catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo probar la lámpara";
+        const status = message.includes("no encontrada") ? 404 : 503;
+        return reply.status(status).send({ error: message });
+    }
 });
 app.get("/devices/:id/lamps", async (req) => ({
     lampIds: store.getLampIdsForCaller(req.params.id),
@@ -1042,6 +1565,7 @@ app.put("/devices/:id/lamps", async (req, reply) => {
         for (const lampId of new Set([...previousLampIds, ...lampIds]))
             syncLampState(lampId);
         hub.publishLampAssignments(req.params.id, lampIds);
+        scheduleSiteSection("lamps");
         return { callerDeviceId: req.params.id, lampIds };
     }
     catch (error) {
@@ -1071,6 +1595,8 @@ app.delete("/devices/:id", async (req, reply) => {
     hub.publishDeviceList(store.getDevices());
     hub.publishActiveCalls(store.getActiveCalls());
     hub.publishPatientList(store.getPatients());
+    scheduleSiteSection("devices");
+    scheduleSiteSection("lamps");
     return { ok: true };
 });
 app.patch("/devices/:id", async (req, reply) => {
@@ -1093,10 +1619,14 @@ app.patch("/devices/:id", async (req, reply) => {
     if (name) {
         queueDeviceName(id, name.trim());
     }
+    scheduleSiteSection("devices");
     return device;
 });
 app.get("/patients", async () => ({ items: store.getPatients() }));
+const PATIENTS_WEB_ONLY_ERROR = "Los pacientes se gestionan en el web. El servidor local solo los sincroniza.";
 app.post("/patients", async (req, reply) => {
+    if (patientsReadOnly())
+        return reply.status(409).send({ error: PATIENTS_WEB_ONLY_ERROR });
     try {
         if (!req.body || typeof req.body !== "object" || Array.isArray(req.body))
             throw new Error("Datos de paciente inválidos");
@@ -1113,6 +1643,8 @@ app.get("/patients/:id", async (req, reply) => {
     return patient ?? reply.status(404).send({ error: "Paciente no encontrado" });
 });
 app.patch("/patients/:id", async (req, reply) => {
+    if (patientsReadOnly())
+        return reply.status(409).send({ error: PATIENTS_WEB_ONLY_ERROR });
     const previous = store.getPatient(req.params.id);
     if (!previous)
         return reply.status(404).send({ error: "Paciente no encontrado" });
@@ -1128,6 +1660,8 @@ app.patch("/patients/:id", async (req, reply) => {
     }
 });
 app.delete("/patients/:id", async (req, reply) => {
+    if (patientsReadOnly())
+        return reply.status(409).send({ error: PATIENTS_WEB_ONLY_ERROR });
     const patient = store.getPatient(req.params.id);
     if (!patient)
         return reply.status(404).send({ error: "Paciente no encontrado" });
@@ -1172,7 +1706,7 @@ function finalizeActiveCall(deviceId, callType) {
         void syncToCloud(async () => {
             await firebase.upsertCalled(special.state);
             if (special.historyRecord)
-                await firebase.saveCallHistory(special.historyRecord);
+                await saveHistoryToCloud(special.historyRecord);
         });
         return true;
     }
@@ -1192,7 +1726,7 @@ function finalizeActiveCall(deviceId, callType) {
     void syncToCloud(async () => {
         await firebase.upsertCalled(state);
         if (historyRecord)
-            await firebase.saveCallHistory(historyRecord);
+            await saveHistoryToCloud(historyRecord);
     });
     if (historyRecord)
         hub.publishCallHistory(store.getCallHistory());
@@ -1254,6 +1788,8 @@ app.patch("/presence/settings", async (req) => {
         }
     }
     hub.publishPresenceSettings(settings);
+    scheduleSiteSection("settings");
+    scheduleSiteSection("presence");
     return settings;
 });
 app.put("/presence/sensors/:deviceId", async (req, reply) => {
@@ -1266,6 +1802,7 @@ app.put("/presence/sensors/:deviceId", async (req, reply) => {
     const areaName = String(req.body?.areaName ?? "").trim();
     const sensor = store.upsertPresenceSensor(deviceId, role, areaName, req.body?.enabled !== false);
     publishPresenceState(deviceId);
+    scheduleSiteSection("presence");
     return sensor;
 });
 app.delete("/presence/sensors/:deviceId", async (req) => {
@@ -1274,6 +1811,7 @@ app.delete("/presence/sensors/:deviceId", async (req) => {
         closePresenceRuntimeSession(deviceId, Date.now(), "sensor_removed");
     presenceRuntime.delete(deviceId);
     const deleted = store.deletePresenceSensor(deviceId);
+    scheduleSiteSection("presence");
     return { ok: true, deleted };
 });
 app.get("/presence/sessions", async (req) => ({ items: presenceSessionsFromQuery(req.query) }));
@@ -1317,17 +1855,22 @@ async function bootstrap() {
             res.setHeader("Cache-Control", immutableSound ? "public, max-age=31536000, immutable" : "no-cache");
         },
     });
-    const stopConfigWatch = firebase.subscribeConfig((deviceId, cfg) => {
-        const frame = {
-            msgType: "config_update",
-            deviceId,
-            config: cfg,
-        };
-        gateway.sendConfig(frame);
-    });
+    const stopConfigWatch = config.legacyDevicesConfig
+        ? firebase.subscribeConfig((deviceId, cfg) => {
+            const frame = {
+                msgType: "config_update",
+                deviceId,
+                config: cfg,
+            };
+            gateway.sendConfig(frame);
+        })
+        : () => undefined;
+    startSiteSettingsWatch();
     await app.ready();
     await gateway.open();
     gateway.requestGatewayStatus();
+    startPatientsWatch();
+    startSiteCommandsWatch();
     for (const saved of store.getPendingCommands()) {
         if (!store.getDevice(saved.deviceId)) {
             store.cancelPendingCommand(saved.deviceId, saved.kind);
@@ -1374,18 +1917,34 @@ async function bootstrap() {
     setInterval(retryDeviceNames, 1000);
     setInterval(() => gateway.requestGatewayStatus(), 2000);
     setInterval(() => sweepPresenceMonitor(), 5000);
-    // Presencia: la UI usa lastSeenMs con una ventana de 90 s. El barrido mantiene
-    // online coherente en BD y notifica a los navegadores cuando algo expira.
+    setInterval(() => { void flushCloudOutbox(); }, 1000);
+    // Re-publica el estado de la sede cada 60 min como red de seguridad.
+    // Los cambios reales ya se publican al instante en sus endpoints/comandos.
     setInterval(() => {
-        const offlineDevices = store.sweepOfflineDevices(90_000);
+        if (firebase.isEnabled())
+            void publishAllSiteSections();
+    }, 60 * 60_000);
+    // Presencia: la UI local usa la ventana configurable por sede. El barrido
+    // mantiene online coherente en SQLite y notifica a los navegadores.
+    setInterval(() => {
+        const offlineDevices = store.sweepOfflineDevices(store.getOnlineWindowMs());
         if (offlineDevices.length > 0) {
             for (const deviceId of offlineDevices)
                 devicePresenceSentAt.delete(deviceId);
             hub.publishDeviceList(store.getDevices());
+            schedulePresencePublish(0, true);
+            scheduleSiteSection("devices");
         }
         const offlineLamps = store.sweepOfflineLamps(90_000);
-        if (offlineLamps.length > 0)
+        if (offlineLamps.length > 0) {
             hub.publishLampList(store.getLamps());
+            scheduleSiteSection("lamps");
+        }
+    }, 5000);
+    // Presencia agregada en Firestore: un solo documento por sede cada ~ventana/2.
+    setInterval(() => {
+        if (Date.now() - lastPresencePublishAt >= presenceIntervalMs())
+            void publishPresenceNow();
     }, 5000);
     // Auto-finaliza llamados especiales cuyo perfil tiene cronómetro (autoEndS > 0).
     // Cada (dispositivo, tipo) tiene su propio cronómetro e independiente.
@@ -1416,9 +1975,23 @@ async function bootstrap() {
         redirect.on("error", (err) => app.log.warn({ err }, "HTTP->HTTPS redirect failed; HTTPS still works"));
         redirect.listen(redirectPort, "0.0.0.0");
     }
-    app.log.info({ firebaseEnabled: firebase.isEnabled(), tls: tlsActive, serialPort: config.serialPort, localDbFile: config.localDbFile }, `Local bridge running on :${config.localHttpPort}`);
+    app.log.info({
+        firebaseEnabled: firebase.isEnabled(),
+        tls: tlsActive,
+        serialPort: config.serialPort,
+        localDbFile: config.localDbFile,
+        presenceMode: config.presenceMode,
+        historyWriter: config.historyWriter,
+        outboxEnabled: config.outboxEnabled,
+        onlineWindowS: store.getSiteSettings().onlineWindowS,
+    }, `Local bridge running on :${config.localHttpPort}`);
+    void publishPresenceNow();
+    void publishAllSiteSections();
     process.on("SIGINT", () => {
         stopConfigWatch();
+        stopSiteSettingsWatch();
+        stopPatientsWatch();
+        stopSiteCommandsWatch();
         store.close();
         process.exit(0);
     });

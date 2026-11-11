@@ -516,7 +516,7 @@
     .preview-toggle { display: flex; gap: 0.35rem; }
     .preview-toggle .btn-xs { background: #334155; color: #cbd5e1; }
     .preview-toggle .btn-xs.active { background: #0ea5e9; color: #06283d; font-weight: 700; }
-    .screen-preview-wrap { position: relative; width: 100%; max-width: 560px; aspect-ratio: 16 / 9; background: #000; border: 1px solid #334155; border-radius: 10px; overflow: hidden; }
+    .screen-preview-wrap { position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; background: #000; border: 1px solid #334155; border-radius: 10px; overflow: hidden; }
     .msx { position: absolute; left: 50%; top: 50%; display: flex; flex-direction: column; overflow: hidden; font-family: Arial, sans-serif; background-color: var(--bg-color, #0f172a); color: var(--text-color, #ffffff); }
     .msx-header { display: flex; background-color: var(--bg-color, #0f172a); color: var(--header-color, #f59e0b); font-size: 2.5rem; font-weight: bold; padding: 10px 20px; border-bottom: 2px solid var(--header-color, #f59e0b); flex-shrink: 0; }
     .msx-header .llamando { flex: 1 1 auto; }
@@ -543,6 +543,28 @@
     .msx-empty .big-icon { font-size: 5rem; }
     .msx-empty .big-icon svg { width: 5rem; height: 5rem; display: block; }
     .msx-empty h2 { font-weight: 600; font-size: 2rem; margin: 20px 0 0; color: var(--header-color, #f59e0b); }
+.msx-presence { flex: 0 0 auto; padding: 8px 20px 10px; border-top: 1px solid rgba(148,163,184,0.25); }
+.msx-presence-title { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.12em; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px; }
+.msx-presence-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.msx-presence-card { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 92px; padding: 10px 14px; border-radius: 8px; background: rgba(30,41,59,0.9); border: 1px solid #334155; border-left: 5px solid #64748b; overflow: hidden; }
+.msx-presence-card.free { border-left-color: var(--header-color, #f59e0b); }
+.msx-presence-card.occupied { border-left-color: #22c55e; }
+.msx-presence-card.unknown { border-left-color: #64748b; }
+.msx-presence-card.alert { border-left-color: #ef4444; animation: presencePulse 1.6s ease-in-out infinite; }
+.msx-presence-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.msx-presence-icon { display: inline-flex; width: 26px; height: 26px; flex-shrink: 0; color: #94a3b8; }
+.msx-presence-icon svg { width: 100%; height: 100%; }
+.msx-presence-name { font-size: 1.2rem; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msx-presence-state { font-size: 1.7rem; font-weight: 800; line-height: 1.1; color: #cbd5e1; }
+.msx-presence-card.free .msx-presence-state { color: var(--header-color, #f59e0b); }
+.msx-presence-card.occupied .msx-presence-state { color: #86efac; font-family: 'Courier New', monospace; }
+.msx-presence-card.unknown .msx-presence-state { color: #94a3b8; }
+.msx-presence-card.alert .msx-presence-state { color: #fca5a5; }
+.msx-presence-card.free .msx-presence-icon { color: var(--header-color, #f59e0b); }
+.msx-presence-card.occupied .msx-presence-icon { color: #22c55e; }
+.msx-presence-card.unknown .msx-presence-icon { color: #64748b; }
+.msx-presence-card.alert .msx-presence-icon { color: #ef4444; }
+@keyframes presencePulse { 0%, 100% { box-shadow: 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 10px rgba(239,68,68,0.7); } }
     .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; margin-bottom: 1.25rem; }
     .profile-row { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.8rem; display: grid; gap: 0.65rem; }
     .profile-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
@@ -781,6 +803,7 @@
               <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'firmware' }" @click="toggleCallerSort('firmware')">Firmware<span class="sort-mark">{{ callerSortMark('firmware') }}</span></button></th>
               <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'status' }" @click="toggleCallerSort('status')">Estado<span class="sort-mark">{{ callerSortMark('status') }}</span></button></th>
               <th><button type="button" class="th-sort" :class="{ active: callerSortKey === 'lastSeen' }" @click="toggleCallerSort('lastSeen')">Última vez<span class="sort-mark">{{ callerSortMark('lastSeen') }}</span></button></th>
+              <th>Presencia</th>
               <th></th>
             </tr>
           </thead>
@@ -823,6 +846,20 @@
                 </span>
               </td>
               <td class="mono" data-label="Última vez">{{ d.lastSeenMs ? formatLastSeen(d.lastSeenMs) : '—' }}</td>
+              <td data-label="Presencia">
+                <select
+                  v-if="presenceDrafts[d.deviceId]"
+                  class="loc-select"
+                  v-model="presenceDrafts[d.deviceId].role"
+                  @change="savePresenceSensor(d)"
+                >
+                  <option value="">Sin presencia</option>
+                  <option value="bathroom">Baño</option>
+                  <option value="sillon">Sillón</option>
+                  <option value="cama">Cama</option>
+                </select>
+                <span v-else class="assign-copy">-</span>
+              </td>
               <td class="row-actions">
                 <button
                   v-if="editingId !== d.deviceId"
@@ -1289,6 +1326,23 @@
                   <h2>No hay llamados activos</h2>
                 </div>
               </div>
+              <div v-if="previewPresenceCards.length" class="msx-presence">
+                <div class="msx-presence-title">Baños</div>
+                <div class="msx-presence-grid">
+                  <div
+                    v-for="card in previewPresenceCards"
+                    :key="card.deviceId"
+                    class="msx-presence-card"
+                    :class="[card.state, { alert: card.alert }]"
+                  >
+                    <div class="msx-presence-card-head">
+                      <span class="msx-presence-icon" v-html="locationIconSvg('bano')"></span>
+                      <span class="msx-presence-name">{{ card.areaName }}</span>
+                    </div>
+                    <div class="msx-presence-state">{{ card.label }}</div>
+                  </div>
+                </div>
+              </div>
               <div class="msx-footer">
                 <div class="msx-location">{{ locationSettings.name || 'Sede sin nombre' }}<span v-if="!previewShowEmpty && previewCalls.length > previewCapacity"> - Mostrando {{ previewVisibleCalls.length }} de {{ previewCalls.length }}</span></div>
                 <div class="msx-clock">
@@ -1456,35 +1510,11 @@
               <span class="presence-badge" :class="s.state">{{ presenceCardLabel(s.state) }}</span>
             </div>
             <div class="presence-time">{{ presenceElapsed(s) || '—' }}</div>
-            <p class="assign-copy">{{ getDeviceName(s.deviceId) }} · {{ presenceRoleLabel(s.role) }}</p>
+            <p class="assign-copy">{{ presenceRoleLabel(s.role) }}</p>
             <p v-if="s.alert" class="presence-alert">Permanencia prolongada</p>
           </section>
         </div>
         <p v-else class="assign-copy">Aún no hay sensores configurados.</p>
-      </section>
-
-      <section class="cfg-card" style="margin-bottom:1rem">
-        <h3>Asignar sensores</h3>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Llamador</th><th>Rol</th><th>Área</th><th></th></tr></thead>
-            <tbody>
-              <tr v-for="d in callers" :key="d.deviceId">
-                <td>{{ d.name || d.deviceId }}<div class="sub mono">{{ d.deviceId }}</div></td>
-                <td>
-                  <select v-if="presenceDrafts[d.deviceId]" v-model="presenceDrafts[d.deviceId].role">
-                    <option value="">Sin sensor</option>
-                    <option value="bathroom">Baño</option>
-                    <option value="sillon">Sillón</option>
-                    <option value="cama">Cama</option>
-                  </select>
-                </td>
-                <td><input v-if="presenceDrafts[d.deviceId]" type="text" v-model="presenceDrafts[d.deviceId].areaName" placeholder="Baño 1" :disabled="!presenceDrafts[d.deviceId].role"></td>
-                <td><button class="btn-xs btn-save" @click="savePresenceSensor(d)">Guardar</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
 
       <section class="cfg-card">
@@ -1605,17 +1635,20 @@
     </div>
 
     <div v-show="tab === 'patients'">
-      <div class="modal-header"><h2>Pacientes ({{ patients.length }})</h2><button class="btn-xs btn-save" @click="openPatient()">+ Ingresar paciente</button></div>
+      <div class="modal-header"><h2>Pacientes ({{ patients.length }})</h2><button class="btn-xs btn-save" :disabled="patientsReadOnly" @click="openPatient()">+ Ingresar paciente</button></div>
+      <p v-if="patientsReadOnly" role="status" style="background:#1e3a5f;padding:10px 12px;border-radius:8px;margin:8px 0">
+        Los pacientes se gestionan en el web. Este servidor local solo los sincroniza y los envía a los llamadores.
+      </p>
       <p v-if="patientMessage" role="status">{{ patientMessage }}</p>
       <div class="table-wrap" style="overflow-x:auto"><table v-if="patients.length">
         <thead><tr><th>Nombre</th><th>Edad</th><th>Ingreso</th><th>Notas</th><th>Llamador</th><th>Acciones</th></tr></thead>
         <tbody><tr v-for="p in patients" :key="p.patientId">
           <td>{{ p.name }}</td><td>{{ p.age ?? '—' }}</td><td>{{ p.admissionDate?.replace('T', ' ') || '—' }}</td>
           <td style="max-width:250px;white-space:normal">{{ p.notes || '—' }}</td><td>{{ p.assignedDevice ? getDeviceName(p.assignedDevice) : 'Sin asignar' }}</td>
-          <td><button class="btn-xs btn-edit" :disabled="patientSaving" @click="openPatient(p)">Editar / Asignar</button>
-            <button v-if="p.assignedDevice" class="btn-xs btn-cancel" :disabled="patientSaving" @click="unassignPatient(p)">Desasignar</button>
+          <td><button class="btn-xs btn-edit" :disabled="patientSaving || patientsReadOnly" @click="openPatient(p)">Editar / Asignar</button>
+            <button v-if="p.assignedDevice" class="btn-xs btn-cancel" :disabled="patientSaving || patientsReadOnly" @click="unassignPatient(p)">Desasignar</button>
             <button v-if="p.assignedDevice" class="btn-xs btn-assign" :disabled="patientSaving" @click="resendPatient(p)">Reenviar</button>
-            <button class="btn-xs btn-delete" :disabled="patientSaving" @click="removePatient(p)">Eliminar</button></td>
+            <button class="btn-xs btn-delete" :disabled="patientSaving || patientsReadOnly" @click="removePatient(p)">Eliminar</button></td>
         </tr></tbody>
       </table><p v-else class="empty-state">Aún no hay pacientes ingresados.</p></div>
     </div>
@@ -1695,6 +1728,7 @@ createApp({
     const patientSaving = ref(false);
     const patientError = ref('');
     const patientMessage = ref('');
+    const patientsReadOnly = ref(false);
     const assignedPatientName = id => patients.value.find(p => p.assignedDevice === id)?.name || '';
     const openPatient = (patient) => {
       patientError.value = '';
@@ -1710,6 +1744,7 @@ createApp({
       patients.value = list.items || [];
     };
     const savePatient = async () => {
+      if (patientsReadOnly.value) { patientError.value = 'Los pacientes se gestionan en el web.'; return; }
       const form = patientForm.value;
       const occupied = patients.value.find(p => p.assignedDevice === form.assignedDevice && p.patientId !== form.patientId);
       if (occupied && !confirm(`Este llamador tiene a ${occupied.name}. ¿Reemplazar su asignación?`)) return;
@@ -1857,7 +1892,7 @@ createApp({
 
     const load = async () => {
       try {
-        const [c, d, h, l, p, s, g, pa] = await Promise.all([
+        const [c, d, h, l, p, s, g, pa, health] = await Promise.all([
           fetch('/calls/active').then(r => r.json()),
           fetch('/devices').then(r => r.json()),
           fetch('/calls/history').then(r => r.json()),
@@ -1866,12 +1901,14 @@ createApp({
           fetch('/location-settings').then(r => r.json()),
           fetch('/gateway/status').then(r => r.json()),
           fetch('/patients').then(r => r.json()),
+          fetch('/health').then(r => r.json()).catch(() => ({})),
         ]);
         activeCalls.value = c.items || [];
         devices.value     = d.items || [];
         callHistory.value = [...(h.items || [])].slice(0, 10).reverse();
         lamps.value       = l.items || [];
         patients.value = pa.items || [];
+        patientsReadOnly.value = Boolean(health.patientsReadOnly);
         alertProfiles.value = p.items || [];
         locationSettings.value = s;
         applyGatewayStatus(g);
@@ -1894,10 +1931,9 @@ createApp({
 
     const ensurePresenceDrafts = () => {
       for (const d of callers.value) {
-        if (!presenceDrafts[d.deviceId]) presenceDrafts[d.deviceId] = { role: '', areaName: '' };
+        if (!presenceDrafts[d.deviceId]) presenceDrafts[d.deviceId] = { role: '' };
         const sensor = (presenceStatus.value.sensors || []).find(s => s.deviceId === d.deviceId);
         presenceDrafts[d.deviceId].role = sensor?.role || '';
-        presenceDrafts[d.deviceId].areaName = sensor?.areaName || '';
       }
     };
 
@@ -1930,7 +1966,7 @@ createApp({
       try {
         const url = `/presence/sensors/${encodeURIComponent(device.deviceId)}`;
         const response = draft.role
-          ? await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: draft.role, areaName: draft.areaName }) })
+          ? await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: draft.role, areaName: getDeviceName(device.deviceId) }) })
           : await fetch(url, { method: 'DELETE' });
         if (!response.ok) throw new Error('No se pudo guardar el sensor');
         await loadPresenceStatus();
@@ -2489,6 +2525,28 @@ createApp({
       { id: 'p5', name: 'Bano 105', locationType: 'bano', cons: 1, time: '03:27', emergency: true },
       { id: 'p6', name: 'Cama 106', locationType: 'cama', cons: 2, time: '01:50', emergency: false },
     ];
+
+    const previewPresenceCards = computed(() => {
+      if (!presenceSettings.value.enabled || !presenceSettings.value.showOnLocation) return [];
+      const showFree = presenceSettings.value.showFreeOnLocation !== false;
+      const configured = (presenceStatus.value.sensors || [])
+        .map(sensor => getDeviceName(sensor.deviceId))
+        .filter(Boolean);
+      const areas = configured.length > 0 ? configured : ['Baño 1', 'Baño 2'];
+      // La vista previa usa estados de ejemplo para mostrar los colores/diseño.
+      const cards = areas.slice(0, 4).map((areaName, index) => {
+        const occupied = index % 2 === 0;
+        return {
+          deviceId: `preview-bano-${index}`,
+          areaName,
+          state: occupied ? 'occupied' : 'free',
+          label: occupied ? '03:27' : 'Libre',
+          alert: false,
+        };
+      });
+      return showFree ? cards : cards.filter(card => card.state !== 'free');
+    });
+    const previewPresenceRows = computed(() => Math.ceil(previewPresenceCards.value.length / 4));
     const previewZoom = computed(() => {
       const pct = Number(locationSettings.value.uiScalePercent) || 100;
       return Math.max(50, Math.min(200, pct)) / 100;
@@ -2510,9 +2568,16 @@ createApp({
     }));
     const PREVIEW_CHROME_HEIGHT = 170;
     const PREVIEW_CALL_ROW_HEIGHT = 77;
+    const PREVIEW_PRESENCE_HEIGHT = 92;
+    const PREVIEW_PRESENCE_GAP = 8;
+    const PREVIEW_PRESENCE_CHROME = 44;
     const previewCapacity = computed(() => {
       const layoutHeight = 1080 / previewZoom.value;
-      return Math.max(1, Math.min(7, Math.floor((layoutHeight - PREVIEW_CHROME_HEIGHT) / PREVIEW_CALL_ROW_HEIGHT)));
+      const rows = previewPresenceRows.value;
+      const presenceHeight = rows > 0
+        ? PREVIEW_PRESENCE_CHROME + rows * PREVIEW_PRESENCE_HEIGHT + (rows - 1) * PREVIEW_PRESENCE_GAP
+        : 0;
+      return Math.max(1, Math.min(7, Math.floor((layoutHeight - PREVIEW_CHROME_HEIGHT - presenceHeight) / PREVIEW_CALL_ROW_HEIGHT)));
     });
     const previewVisibleCalls = computed(() => previewCalls.slice(0, previewCapacity.value));
     let previewObserver = null;
@@ -2742,7 +2807,7 @@ createApp({
       startEdit, saveEdit, cancelEdit, deleteDevice, endCall, isEndingCall, saveLocationType, getLocationIcon, locationIconSvg,
       saveLamp, switchTransport, testLamp, startEditLamp, saveEditLamp, cancelEditLamp, deleteLamp,
       openAssignModal, closeAssignModal, loadAssignments, saveAssignments, saveProfile, saveLocationSettings, resetLocationSettings, testSound, testVoice, bumpUiScale, saveGatewayConfig,
-      previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle, formatDate,
+      previewEl, previewShowEmpty, previewCalls, previewVisibleCalls, previewCapacity, previewVars, previewStyle, previewPresenceCards, formatDate,
     };
   }
 }).mount('#app');

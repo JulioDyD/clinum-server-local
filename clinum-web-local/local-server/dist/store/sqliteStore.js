@@ -234,9 +234,27 @@ export class SqliteStore {
         sound_on_detection    INTEGER NOT NULL DEFAULT 0,
         detection_sound       TEXT NOT NULL DEFAULT 'alert.mp3'
       );
+      CREATE TABLE IF NOT EXISTS site_settings (
+        id              INTEGER PRIMARY KEY CHECK (id = 1),
+        online_window_s INTEGER NOT NULL DEFAULT 90
+      );
+      CREATE TABLE IF NOT EXISTS cloud_outbox (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind          TEXT NOT NULL,
+        doc_id        TEXT NOT NULL,
+        payload       TEXT NOT NULL,
+        delete_fields TEXT NOT NULL DEFAULT '[]',
+        attempts      INTEGER NOT NULL DEFAULT 0,
+        next_at_ms    INTEGER NOT NULL DEFAULT 0,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_outbox_dedupe ON cloud_outbox(kind, doc_id);
+      CREATE INDEX IF NOT EXISTS idx_cloud_outbox_due ON cloud_outbox(next_at_ms);
     `);
         this.db.prepare("INSERT OR IGNORE INTO location_settings (id) VALUES (1)").run();
         this.db.prepare("INSERT OR IGNORE INTO presence_settings (id) VALUES (1)").run();
+        this.db.prepare("INSERT OR IGNORE INTO site_settings (id, online_window_s) VALUES (1, 90)").run();
         const normalColorMigration = this.db.prepare("SELECT name FROM schema_migrations WHERE name = ?").get("normal_call_color_green");
         if (!normalColorMigration) {
             this.db.prepare("UPDATE location_settings SET normal_call_color = '#22c55e' WHERE normal_call_color = '#0ea5e9'").run();
@@ -288,6 +306,7 @@ export class SqliteStore {
         this._ensureColumn("location_settings", "ui_scale_percent", "INTEGER NOT NULL DEFAULT 100");
         this._ensureColumn("call_history", "patient_name", "TEXT NOT NULL DEFAULT ''");
         this._ensureColumn("call_history", "finish_origin", "TEXT NOT NULL DEFAULT ''");
+        this._ensureColumn("patients", "source", "TEXT NOT NULL DEFAULT 'local'");
         this._ensureColumn("lamp_alert_profiles", "auto_end_s", "INTEGER NOT NULL DEFAULT 0");
         this._ensureColumn("presence_settings", "sound_on_detection", "INTEGER NOT NULL DEFAULT 0");
         this._ensureColumn("presence_settings", "detection_sound", "TEXT NOT NULL DEFAULT 'alert.mp3'");
@@ -374,6 +393,7 @@ export class SqliteStore {
             assignedDevice: row.assigned_device || null,
             createdAtMs: row.created_at_ms,
             updatedAtMs: row.updated_at_ms,
+            source: row.source === "cloud" ? "cloud" : "local",
         };
     }
     _rowToLamp(row) {
@@ -802,6 +822,91 @@ export class SqliteStore {
       WHERE id = 1
     `).run((values.name ?? current.name).trim() || current.name, clamp(values.attentionTimeMin ?? current.attentionTimeMin ?? 5, 1, 10, 5), values.backgroundColor ?? current.backgroundColor, values.headerColor ?? current.headerColor, values.textColor ?? current.textColor, values.normalCallColor ?? current.normalCallColor, values.emergencyCallColor ?? current.emergencyCallColor, values.timerColor ?? current.timerColor, (values.soundEnabled ?? current.soundEnabled) ? 1 : 0, clamp(values.soundVolume ?? current.soundVolume, 0, 100, current.soundVolume), values.alertSound ?? current.alertSound, values.emergencySound ?? current.emergencySound, (values.voiceEnabled ?? current.voiceEnabled) ? 1 : 0, clamp(values.voiceRate ?? current.voiceRate, 0.5, 2, current.voiceRate), clamp(values.voicePitch ?? current.voicePitch, 0.5, 2, current.voicePitch), clamp(values.voiceVolume ?? current.voiceVolume, 0, 1, current.voiceVolume), (values.pendingReminderEnabled ?? current.pendingReminderEnabled) ? 1 : 0, clamp(values.pendingReminderIntervalS ?? current.pendingReminderIntervalS ?? 120, 5, 900, 120), clamp(values.uiScalePercent ?? current.uiScalePercent ?? 100, 50, 200, 100));
         return this.getLocationSettings();
+    }
+    // ── Site settings (operativas) ───────────────────────────────────────────
+    getSiteSettings() {
+        const row = this.db.prepare("SELECT * FROM site_settings WHERE id = 1").get();
+        const onlineWindowS = Number(row?.online_window_s ?? 90);
+        return {
+            onlineWindowS: Math.max(60, Math.min(600, Number.isFinite(onlineWindowS) ? onlineWindowS : 90)),
+        };
+    }
+    updateSiteSettings(values) {
+        const current = this.getSiteSettings();
+        const requested = Number(values.onlineWindowS ?? current.onlineWindowS);
+        const onlineWindowS = Math.max(60, Math.min(600, Number.isFinite(requested) ? requested : current.onlineWindowS));
+        this.db.prepare("UPDATE site_settings SET online_window_s = ? WHERE id = 1").run(onlineWindowS);
+        return this.getSiteSettings();
+    }
+    getOnlineWindowMs() {
+        return this.getSiteSettings().onlineWindowS * 1000;
+    }
+    // ── Cloud outbox (Fase 2) ────────────────────────────────────────────────
+    /**
+     * Encola una escritura a Firestore. Para "called" y "device" coalesce por
+     * (kind, docId): el estado más reciente reemplaza al anterior. Para "history"
+     * cada docId es único, así que se conservan todos los cierres.
+     */
+    enqueueCloudWrite(kind, docId, payload, deleteFields = [], nowMs = Date.now()) {
+        this.db.prepare(`
+      INSERT INTO cloud_outbox (kind, doc_id, payload, delete_fields, attempts, next_at_ms, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, 0, 0, ?, ?)
+      ON CONFLICT(kind, doc_id) DO UPDATE SET
+        payload = excluded.payload,
+        delete_fields = excluded.delete_fields,
+        next_at_ms = 0,
+        updated_at_ms = excluded.updated_at_ms
+    `).run(kind, docId, JSON.stringify(payload), JSON.stringify(deleteFields), nowMs, nowMs);
+    }
+    getDueCloudWrites(limit = 25, nowMs = Date.now()) {
+        const rows = this.db.prepare("SELECT * FROM cloud_outbox WHERE next_at_ms <= ? ORDER BY id ASC LIMIT ?").all(nowMs, Math.max(1, Math.min(200, limit)));
+        return rows.map((row) => ({
+            id: Number(row.id),
+            kind: row.kind,
+            docId: row.doc_id,
+            payload: this._parseJsonObject(row.payload),
+            deleteFields: this._parseStringArray(row.delete_fields),
+            attempts: Number(row.attempts ?? 0),
+            nextAtMs: Number(row.next_at_ms ?? 0),
+            createdAtMs: Number(row.created_at_ms ?? 0),
+        }));
+    }
+    markCloudWriteDone(id) {
+        this.db.prepare("DELETE FROM cloud_outbox WHERE id = ?").run(id);
+    }
+    markCloudWriteFailed(id, attempts, nowMs = Date.now()) {
+        const safeAttempts = Math.max(1, attempts);
+        const delayMs = Math.min(5 * 60_000, 1000 * 2 ** Math.min(8, safeAttempts - 1));
+        this.db.prepare("UPDATE cloud_outbox SET attempts = ?, next_at_ms = ?, updated_at_ms = ? WHERE id = ?").run(safeAttempts, nowMs + delayMs, nowMs, id);
+    }
+    getCloudOutboxStats() {
+        const row = this.db.prepare("SELECT COUNT(*) AS pending, MIN(created_at_ms) AS oldest FROM cloud_outbox").get();
+        return {
+            pending: Number(row?.pending ?? 0),
+            oldestCreatedAtMs: row?.oldest === null || row?.oldest === undefined ? null : Number(row.oldest),
+        };
+    }
+    clearCloudOutbox() {
+        const result = this.db.prepare("DELETE FROM cloud_outbox").run();
+        return Number(result.changes ?? 0);
+    }
+    _parseJsonObject(value) {
+        try {
+            const parsed = JSON.parse(String(value ?? "{}"));
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        }
+        catch {
+            return {};
+        }
+    }
+    _parseStringArray(value) {
+        try {
+            const parsed = JSON.parse(String(value ?? "[]"));
+            return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+        }
+        catch {
+            return [];
+        }
     }
     // ── Presence monitor ──────────────────────────────────────────────────────
     _rowToPresenceSensor(row) {
@@ -1236,6 +1341,59 @@ export class SqliteStore {
     getPatients() {
         return this.db.prepare("SELECT * FROM patients ORDER BY created_at_ms DESC").all()
             .map(row => this._rowToPatient(row));
+    }
+    /** Upsert de un paciente espejado desde Firestore (el web es el dueño). */
+    upsertCloudPatient(input) {
+        const now = Date.now();
+        const existing = this.getPatient(input.patientId);
+        const previousDevice = existing?.assignedDevice ?? null;
+        const name = String(input.name ?? "").trim() || "Sin nombre";
+        const numericAge = input.age === undefined || input.age === null ? null : Number(input.age);
+        const age = numericAge !== null && Number.isFinite(numericAge) ? numericAge : null;
+        const admissionDate = input.admissionDate ?? null;
+        const notes = input.notes ?? null;
+        const deviceId = input.assignedDevice ? String(input.assignedDevice) : null;
+        this.db.transaction(() => {
+            if (deviceId)
+                this._freeDevice(deviceId, input.patientId);
+            this.db.prepare(`
+        INSERT INTO patients (patient_id, name, age, admission_date, notes, assigned_device, created_at_ms, updated_at_ms, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cloud')
+        ON CONFLICT(patient_id) DO UPDATE SET
+          name = excluded.name,
+          age = excluded.age,
+          admission_date = excluded.admission_date,
+          notes = excluded.notes,
+          assigned_device = excluded.assigned_device,
+          updated_at_ms = excluded.updated_at_ms,
+          source = 'cloud'
+      `).run(input.patientId, name, age, admissionDate, notes, deviceId, input.createdAtMs ?? existing?.createdAtMs ?? now, input.updatedAtMs ?? now);
+        })();
+        return { patient: this.getPatient(input.patientId), previousDevice };
+    }
+    deleteCloudPatient(patientId) {
+        const existing = this.getPatient(patientId);
+        if (!existing)
+            return undefined;
+        this.deletePatient(patientId);
+        return existing;
+    }
+    /**
+     * Elimina del espejo local los pacientes que ya no existen en el web.
+     * Solo toca registros con source='cloud': los creados localmente se conservan.
+     */
+    deleteCloudPatientsNotIn(patientIds) {
+        const keep = new Set(patientIds.filter(Boolean));
+        const rows = this.db.prepare("SELECT * FROM patients WHERE source = 'cloud'").all();
+        const stale = rows.map(row => this._rowToPatient(row)).filter(patient => !keep.has(patient.patientId));
+        if (stale.length === 0)
+            return [];
+        const remove = this.db.prepare("DELETE FROM patients WHERE patient_id = ?");
+        this.db.transaction(() => {
+            for (const patient of stale)
+                remove.run(patient.patientId);
+        })();
+        return stale;
     }
     getPatientByDevice(deviceId) {
         if (!deviceId)

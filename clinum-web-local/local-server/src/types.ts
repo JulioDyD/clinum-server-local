@@ -45,6 +45,38 @@ export type LampAlertProfile = {
   autoEndS: number;
 };
 
+/** Configuración operativa de la sede (no visual) */
+export type SiteSettings = {
+  /** Ventana para considerar un llamador online, en segundos (60-600) */
+  onlineWindowS: number;
+};
+
+export type CloudOutboxKind = "called" | "device" | "history";
+
+/** Paciente tal como llega desde Firestore (el web es el dueño). */
+export type CloudPatient = {
+  patientId: string;
+  name: string;
+  age?: number | null;
+  admissionDate?: string | null;
+  notes?: string | null;
+  assignedDevice?: string | null;
+  createdAtMs?: number;
+  updatedAtMs?: number;
+};
+
+/** Operación pendiente de escritura en Firestore (outbox durable local). */
+export type CloudOutboxItem = {
+  id: number;
+  kind: CloudOutboxKind;
+  docId: string;
+  payload: Record<string, unknown>;
+  deleteFields: string[];
+  attempts: number;
+  nextAtMs: number;
+  createdAtMs: number;
+};
+
 /** Configuración de la pantalla de sala (nombre, tema, sonidos y voz) */
 export type LocationSettings = {
   name: string;
@@ -199,6 +231,8 @@ export type PatientRecord = {
   assignedDevice: string | null;
   createdAtMs: number;
   updatedAtMs: number;
+  /** Origen del registro: local (UI de sede) o cloud (espejo del web) */
+  source?: "local" | "cloud";
 };
 
 /** Campos editables de un paciente (entrada del formulario) */

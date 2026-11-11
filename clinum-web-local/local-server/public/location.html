@@ -50,8 +50,9 @@
     .call-text { display: inline-flex; align-items: center; white-space: nowrap; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
     .call-base { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .patient-gap { display: inline-block; white-space: pre; flex-shrink: 0; }
-    .patient-icon { display: inline-flex; align-items: center; flex-shrink: 0; width: 44px; height: 44px; margin-right: 10px; }
+    .patient-icon { display: inline-flex; align-items: center; flex-shrink: 0; width: 44px; height: 44px; margin-right: 10px; color: var(--normal-call-color, #22c55e); }
     .patient-icon svg { width: 100%; height: 100%; }
+    .call-row.emergency-call .patient-icon { color: var(--emergency-call-color, #ef4444); }
     .patient-name { white-space: nowrap; flex-shrink: 0; }
     .call-row .call-text { color: var(--text-color, #ffffff); }
 
