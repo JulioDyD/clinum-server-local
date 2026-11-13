@@ -456,6 +456,12 @@
     .presence-live-grid .presence-time { font-size: 1.55rem; }
     .presence-live-grid .presence-badge { font-size: 0.6rem; }
     .presence-live-grid .assign-copy { margin-bottom: 0; }
+    .presence-live-grid.compact .info-card { padding: 0.65rem; border-radius: 8px; }
+    .presence-live-grid.compact .info-card-head { margin-bottom: 0.3rem; }
+    .presence-live-grid.compact .info-card-head h3 { font-size: 0.85rem; }
+    .presence-live-grid.compact .presence-time { font-size: 1.2rem; }
+    .presence-live-grid.compact .presence-badge { font-size: 0.55rem; padding: 0.1rem 0.4rem; }
+    .presence-live-grid.compact .assign-copy { font-size: 0.68rem; }
     .info-card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 1.25rem; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
     .info-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.9rem; }
     .info-card-head h3 { margin: 0; font-size: 1.02rem; color: #f8fafc; display: flex; align-items: center; gap: 0.5rem; }
@@ -1517,6 +1523,7 @@
         <div
           v-if="presenceCards.length"
           class="info-grid presence-live-grid"
+          :class="{ compact: presenceGridCompact }"
           :style="{ gridTemplateColumns: `repeat(${presenceGridColumns}, minmax(0, 1fr))` }"
         >
           <section v-for="s in presenceCards" :key="s.deviceId" class="info-card presence-card" :class="['is-' + s.state, { 'is-alert': s.alert }]">
@@ -2044,19 +2051,29 @@ createApp({
         : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     };
 
+    // Orden estable: conserva el orden en que se dieron de alta los sensores
+    // para que las tarjetas no cambien de posicion cuando cambia la deteccion.
     const presenceCards = computed(() => {
-      const order = { occupied: 0, unknown: 1, free: 2 };
+      const order = new Map(
+        (presenceStatus.value.sensors || []).map(sensor => [sensor.deviceId, Number(sensor.createdAtMs) || 0]),
+      );
       return [...(presenceStatus.value.states || [])].sort((a, b) => {
-        if (a.alert !== b.alert) return a.alert ? -1 : 1;
-        const oa = order[a.state] ?? 3, ob = order[b.state] ?? 3;
+        const oa = order.get(a.deviceId) ?? Number.MAX_SAFE_INTEGER;
+        const ob = order.get(b.deviceId) ?? Number.MAX_SAFE_INTEGER;
         if (oa !== ob) return oa - ob;
-        return String(a.areaName).localeCompare(String(b.areaName), 'es');
+        return String(a.areaName || '').localeCompare(String(b.areaName || ''), 'es');
       });
     });
 
     // Matriz de estado en vivo: crece en columnas y reduce el tamaño de los
     // cajones conforme se agregan sensores.
-    const presenceGridColumns = computed(() => Math.min(6, Math.max(4, presenceCards.value.length)));
+    const presenceGridColumns = computed(() => {
+      const count = presenceCards.value.length;
+      if (count <= 3) return 4;
+      if (count <= 5) return 5;
+      return 6;
+    });
+    const presenceGridCompact = computed(() => presenceCards.value.length > 6);
 
     // ── Reportes ──
     const reportFilters = ref({ from: '', to: '', deviceId: '', patient: '', callType: '', onTime: '', finishOrigin: '' });
@@ -2824,7 +2841,7 @@ createApp({
 
     return {
       networkDiagnostics, networkDiagnosticsError, loadNetworkDiagnostics, clearPendingCommands, clearingPendingCommands,
-      presenceStatus, presenceSettings, presenceSessions, presenceHistoryOpen, presenceHistoryQueried, presenceHistoryLoading, presenceFilters, presenceSavedAt, presenceDrafts, presenceCards, presenceGridColumns,
+      presenceStatus, presenceSettings, presenceSessions, presenceHistoryOpen, presenceHistoryQueried, presenceHistoryLoading, presenceFilters, presenceSavedAt, presenceDrafts, presenceCards, presenceGridColumns, presenceGridCompact,
       ensurePresenceDrafts, loadPresenceStatus, savePresenceSettings, savePresenceSensor, loadPresenceSessions, exportPresenceCSV,
       presenceCardLabel, presenceRoleLabel, presenceElapsed,
       systemInfo, systemInfoError, loadSystemInfo, systemBuiltAt, systemUptime,
