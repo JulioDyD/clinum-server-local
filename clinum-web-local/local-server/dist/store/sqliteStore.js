@@ -226,8 +226,8 @@ export class SqliteStore {
         enabled               INTEGER NOT NULL DEFAULT 0,
         show_on_location      INTEGER NOT NULL DEFAULT 0,
         show_free_on_location INTEGER NOT NULL DEFAULT 1,
-        exit_grace_s          INTEGER NOT NULL DEFAULT 20,
-        min_session_s         INTEGER NOT NULL DEFAULT 5,
+        exit_grace_s          INTEGER NOT NULL DEFAULT 0,
+        min_session_s         INTEGER NOT NULL DEFAULT 0,
         stale_s               INTEGER NOT NULL DEFAULT 180,
         long_stay_min         INTEGER NOT NULL DEFAULT 15,
         alert_enabled         INTEGER NOT NULL DEFAULT 1,
@@ -259,6 +259,12 @@ export class SqliteStore {
         if (!normalColorMigration) {
             this.db.prepare("UPDATE location_settings SET normal_call_color = '#22c55e' WHERE normal_call_color = '#0ea5e9'").run();
             this.db.prepare("INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?, ?)").run("normal_call_color_green", Date.now());
+        }
+        // Migracion: eventos de presencia inmediatos (sin gracia y conservando sesiones cortas)
+        const presenceImmediateMigration = this.db.prepare("SELECT name FROM schema_migrations WHERE name = ?").get("presence_immediate_events");
+        if (!presenceImmediateMigration) {
+            this.db.prepare("UPDATE presence_settings SET exit_grace_s = 0, min_session_s = 0 WHERE id = 1").run();
+            this.db.prepare("INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?, ?)").run("presence_immediate_events", Date.now());
         }
         const insertProfile = this.db.prepare(`
       INSERT OR IGNORE INTO lamp_alert_profiles
@@ -965,8 +971,8 @@ export class SqliteStore {
             enabled: Boolean(row.enabled),
             showOnLocation: Boolean(row.show_on_location),
             showFreeOnLocation: Boolean(row.show_free_on_location ?? 1),
-            exitGraceS: Number(row.exit_grace_s ?? 20) || 20,
-            minSessionS: Number(row.min_session_s ?? 5) || 5,
+            exitGraceS: row.exit_grace_s == null ? 20 : Number(row.exit_grace_s),
+            minSessionS: row.min_session_s == null ? 5 : Number(row.min_session_s),
             staleS: Number(row.stale_s ?? 180) || 180,
             longStayMin: Number(row.long_stay_min ?? 15) || 15,
             alertEnabled: Boolean(row.alert_enabled ?? 1),

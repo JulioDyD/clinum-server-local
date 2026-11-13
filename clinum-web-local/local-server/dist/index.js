@@ -1916,7 +1916,7 @@ async function bootstrap() {
     setInterval(retryPatients, 1000);
     setInterval(retryDeviceNames, 1000);
     setInterval(() => gateway.requestGatewayStatus(), 2000);
-    setInterval(() => sweepPresenceMonitor(), 5000);
+    setInterval(() => sweepPresenceMonitor(), 250);
     setInterval(() => { void flushCloudOutbox(); }, 1000);
     // Re-publica el estado de la sede cada 60 min como red de seguridad.
     // Los cambios reales ya se publican al instante en sus endpoints/comandos.

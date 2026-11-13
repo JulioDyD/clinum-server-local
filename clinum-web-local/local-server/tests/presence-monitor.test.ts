@@ -24,8 +24,8 @@ test("presence settings default disabled with expected thresholds", () => {
     assert.equal(settings.enabled, false);
     assert.equal(settings.showOnLocation, false);
     assert.equal(settings.showFreeOnLocation, true);
-    assert.equal(settings.exitGraceS, 20);
-    assert.equal(settings.minSessionS, 5);
+    assert.equal(settings.exitGraceS, 0);
+    assert.equal(settings.minSessionS, 0);
     assert.equal(settings.staleS, 180);
     assert.equal(settings.longStayMin, 15);
     assert.equal(settings.alertEnabled, true);
